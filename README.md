@@ -1,6 +1,6 @@
 # Momus
 
-![Momus logo: a Greek theatrical mask with a magnifying lens over one eye](assets/logo.png)
+![Momus logo: a Greek theatrical mask with a magnifying lens over one eye](social-preview/logo.png)
 
 *A cheap code-commenting pipeline that does not trust its own comments.*
 
