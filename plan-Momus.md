@@ -33,7 +33,8 @@ criterion, and anything not yet verified is marked as such.
 - Never commit model weights, API keys or `.env` files
 - Ask before installing a new dependency, and **before downloading any model**
   (the maintainer's internet connection is slow). Exception: `qwen2.5-coder:7b`
-  is already approved (2026-11-09) and is to be pulled by the maintainer
+  and `qwen3-coder:30b` are already approved (2026-11-09) and are to be pulled
+  by the maintainer
 
 ---
 
@@ -110,10 +111,18 @@ not customized variants, so system prompts do not distort the comparison):
   normally resumes if interrupted). Check the exact tag on
   `ollama.com/library/qwen2.5-coder` first. Expected role: the middle option
   between the 1.5B (fast, possibly too weak) and the 16B
+- `qwen3-coder:30b` (~19 GB download, MoE with ~3.3B active parameters) —
+  **approved 2026-11-09, not installed yet**. Pull it overnight with
+  `ollama pull qwen3-coder:30b`. Before pulling: check free disk (`df -h`, at
+  least ~30 GB), keep the laptop on mains power with sleep disabled so the
+  download is not interrupted. Memory: the weights alone take ~19 GB of the
+  32 GB, so close other heavy applications and keep the context at ~8k
+  (`num_ctx 8192`). Speed on this CPU is **not measured**: any expectation is
+  an estimate. Expected role: the quality ceiling of the comparison, not
+  automatically the default
 
 > Do **not** download any other model without asking: slow connection.
-> Candidates considered and deferred: `granite4:3b` (~2.1 GB),
-> `qwen3-coder:30b` (~19 GB, MoE with 3.3B active parameters). Check exact tags
+> Candidate considered and deferred: `granite4:3b` (~2.1 GB). Check exact tags
 > on `ollama.com/library` before pulling.
 
 **First measurements** (function `retry`, 8 lines, mains power connected,
@@ -130,6 +139,10 @@ not customized variants, so system prompts do not distort the comparison):
 - [x] First throughput numbers collected — 2026-11-09 (1.5B and 16B only)
 - [ ] `qwen2.5-coder:7b` pulled, responds, and throughput measured with the
       same `retry` test and the same conditions as the table above
+- [ ] `qwen3-coder:30b` pulled (complete, checked with `ollama list`),
+      responds, and throughput + memory use measured with the same `retry` test
+      and conditions. Record cold-load time separately: loading ~19 GB may take
+      far longer than the 16B's ~11 s
 - [ ] **Quality comparison not done yet**: was the code left identical apart
       from the docstring? Was extra text or a markdown fence added? Is the
       docstring correct? This is the first task of §9
@@ -258,8 +271,8 @@ momus/
 - [ ] Before writing, explain to the maintainer how the write path avoids
       damaging files
 - [ ] **Quality task (first thing to do in this phase):** on 5 neutral files,
-      compare `qwen2.5-coder:1.5b`, `qwen2.5-coder:7b` and
-      `deepseek-coder-v2:16b`. Record per model:
+      compare `qwen2.5-coder:1.5b`, `qwen2.5-coder:7b`,
+      `deepseek-coder-v2:16b` and `qwen3-coder:30b`. Record per model:
       seconds per file, tok/s, share of pieces rejected by Argus, number of
       trivial or wrong comments
 - [ ] Decide the open output-mode question (§2): *full-rewrite* vs
@@ -301,11 +314,11 @@ momus/
 - [ ] Record the measurement conditions listed in §3
 - [ ] Save raw results in `benchmarks/`, summarize in the README **including
       failures**
-- [ ] Optional later: add `granite4:3b` and `qwen3-coder:30b` once downloads
-      are possible (30B needs ~19 GB of disk and ~18+ GB of memory; speed on
-      this CPU is **not measured**)
-- **Done when:** one reproducible table covering at least `qwen2.5-coder:1.5b`,
-  `qwen2.5-coder:7b` and `deepseek-coder-v2:16b`
+- [ ] Optional later: add `granite4:3b` once a download is possible
+- [ ] If the 30B is too slow to run the whole benchmark, say so in the table
+      (e.g. run it on fewer files) instead of silently dropping it
+- **Done when:** one reproducible table covering `qwen2.5-coder:1.5b`,
+  `qwen2.5-coder:7b`, `deepseek-coder-v2:16b` and `qwen3-coder:30b`
 
 ---
 
@@ -372,11 +385,11 @@ momus/
 - [ ] Did anything built in the last two sessions change what is actually next
       (a bug found, a decision reversed, something harder or easier)?
 - [ ] Is anything now blocking that was not before (e.g. the quality comparison
-      showing none of the three models passes Argus often enough)?
+      showing none of the four models passes Argus often enough)?
 - [ ] Does the goal still hold — a portfolio-grade repo with an honest
-      benchmark? If the 16B is too slow and the 1.5B and 7B too poor, decide
-      deliberately whether to try another model (`granite4:3b` or
-      `qwen3-coder:30b`) rather than drifting
+      benchmark? If the large models are too slow and the 1.5B and 7B too
+      poor, decide deliberately whether to try another model (e.g.
+      `granite4:3b`) rather than drifting
 
 If nothing has changed, continue down the list without a full replan.
 
