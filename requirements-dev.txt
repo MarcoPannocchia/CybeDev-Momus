@@ -1,0 +1,4 @@
+# Managed by the deps-sync skill. Install with: pip install -r requirements-dev.txt
+# Run from the repository root.
+-r requirements.txt
+pytest==9.2.0

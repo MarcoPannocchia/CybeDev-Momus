@@ -15,8 +15,8 @@ criterion, and anything not yet verified is marked as such.
 - `[ ]` = to do, or done-but-unverified (say which in the line)
 - Each section is a project area or a decision already made in chat
 - Dates are ISO (`YYYY-MM-DD`). Decisions carry the date they were made
-- Reference state for the latest update of this plan: **pre-v0.1.0, no code
-  written yet**. Last updated **2026-11-09**
+- Reference state for the latest update of this plan: **pre-v0.1.0, skeleton
+  only (§5 done)**. Last updated **2026-11-09**
 - Language rules: this plan, all code, comments, docstrings, commit messages
   and the README are in **English**. Explanations to the maintainer in chat are
   also in English
@@ -194,16 +194,20 @@ momus/
 
 ## 5. Phase A — Project skeleton
 
-- [ ] `git init` and virtual environment in the project folder — commands were
-      given 2026-11-09, **not confirmed as run**
-- [ ] `.gitignore` covering `.venv/`, `__pycache__/`, `*.gguf`,
+- [x] `git init` and virtual environment in the project folder — verified
+      2026-11-09 (`git status`, `.venv/bin/python --version`)
+- [x] `.gitignore` covering `.venv/`, `__pycache__/`, `*.gguf`,
       `*.safetensors`, `.env`, `.env.*`, `*.key`, `config.local.*`, editor
-      files — content was given 2026-11-09, **not confirmed as created**;
-      verify with `git status` that `.venv/` is not listed
-- [ ] `pyproject.toml` (Python 3.11+), `src/momus` package, CLI with `--help`
-      and empty subcommands
-- [ ] Smoke test that imports the package
-- **Done when:** `momus --help` works and `pytest` passes
+      files — verified 2026-11-09 with `git check-ignore -v`; `.venv/` is not
+      listed in `git status`
+- [x] `pyproject.toml` (Python 3.11+), `src/momus` package, CLI with `--help`
+      and empty subcommands — verified 2026-11-09 (`momus --help`; each
+      subcommand exits 1 with "not implemented yet")
+- [x] Smoke test that imports the package — `tests/test_smoke.py`, 7 passed
+- [x] `requirements.txt` / `requirements-dev.txt` (added 2026-11-09, via the
+      `deps-sync` skill). Checked with `pip install --dry-run` only; a clean
+      install in a fresh venv was **not** run
+- **Done when:** `momus --help` works and `pytest` passes — met 2026-11-09
 
 ---
 
@@ -371,7 +375,8 @@ momus/
 
 **Order**
 
-- [ ] 1. §5 — skeleton, `.gitignore`, first commit
+- [ ] 1. §5 — skeleton, `.gitignore`, first commit (skeleton and `.gitignore`
+      done 2026-11-09; the skeleton commit waits for the maintainer's request)
 - [ ] 2. §6 — local backend talking to `qwen2.5-coder:1.5b`
 - [ ] 3. §7 — Argus with tests (before any file is written by a model)
 - [ ] 4. §8 — cleaning and splitting

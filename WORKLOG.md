@@ -3,6 +3,46 @@
 Tests run, choices made and why, newest first. Maintained by the `work-log`
 skill. User-facing changes are summarized in [CHANGELOG.md](CHANGELOG.md).
 
+## 2026-11-09 — Project skeleton (plan §5)
+
+**Changed**
+- `pyproject.toml`: setuptools backend, Python >=3.11, `src/` layout, `momus`
+  console script, no runtime dependencies, `pytest` as dev extra
+- `src/momus/__init__.py`, `src/momus/cli.py`: `argparse` CLI; subcommands
+  `comment`, `guard`, `review`, `bench` are placeholders that print "not
+  implemented yet" and exit 1
+- `tests/test_smoke.py`: 7 tests (import, help, each placeholder command)
+- `requirements.txt` (`-e .`) and `requirements-dev.txt` (`pytest==9.2.0`)
+- `plan-Momus.md` §5 checkboxes; `.claude/skills/deps-sync/SKILL.md` now
+  documents `-e .` in `requirements.txt`
+
+**Tests**
+- Command run: `.venv/bin/pytest` — result: 7 passed in 0.04s
+- Command run: `.venv/bin/momus --help` — lists the four subcommands;
+  `.venv/bin/momus guard` exits 1 with "momus guard: not implemented yet"
+- Command run: `pip install --dry-run -r requirements-dev.txt` — resolves
+- Not run: a clean install from `requirements.txt` in a fresh venv (it would
+  download packages; not asked). No baseline run before the change, because no
+  suite existed
+
+**Decisions**
+- `argparse` and `pytest` — approved by the maintainer
+- setuptools as build backend — assistant's choice, open to change. It is the
+  default pip uses and adds no runtime dependency
+- Version `0.0.0` placeholder — assistant's choice; `CLAUDE.md` forbids setting
+  a real version without a request
+- Placeholders exit 1 instead of 0 — assistant's choice, so a stub can never
+  look like a successful run
+- `requirements.txt` holds `-e .` — assistant's choice, so one command installs
+  the `momus` command. Alternative: an empty file, since there are no runtime
+  dependencies
+
+**Open / next**
+- Skeleton changes are uncommitted; the plan's "first commit" waits for the
+  maintainer's request
+- `LICENSE` is CC0; §13 still lists the license as open
+- Next plan step: §6, local backend (`qwen2.5-coder:1.5b`)
+
 ## 2026-11-09 — English chat rule synced everywhere (outside plan)
 
 **Changed**

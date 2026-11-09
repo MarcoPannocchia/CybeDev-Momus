@@ -72,8 +72,13 @@ the project's file wins.
 
 ## Output format
 
+If the project is installable (has `pyproject.toml`), `requirements.txt` starts
+with `-e .` (relative, never an absolute path) so one command also installs the
+project's own CLI.
+
 ```
 # Managed by the deps-sync skill. Install with: pip install -r requirements.txt
+-e .
 anthropic==X.Y.Z
 openai==X.Y.Z
 ```

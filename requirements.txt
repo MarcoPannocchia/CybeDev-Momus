@@ -1,0 +1,4 @@
+# Managed by the deps-sync skill. Install with: pip install -r requirements.txt
+# Run from the repository root. Installs Momus itself (the `momus` command).
+# Momus has no third-party runtime dependencies yet.
+-e .

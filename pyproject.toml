@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "momus"
+# Pre-release placeholder: the real version is set only on the maintainer's request.
+version = "0.0.0"
+description = "Comments and documents freshly written code while spending few tokens."
+readme = "README.md"
+requires-python = ">=3.11"
+# No runtime dependencies yet. Add one only with the maintainer's approval.
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[project.scripts]
+momus = "momus.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
