@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/social-preview.png" alt="Momus logo: a Greek theatrical mask with a magnifying lens over one eye" width="320">
+  <img src="assets/social-preview.png" alt="Momus logo: a Greek theatrical mask with a magnifying lens over one eye">
 </p>
 
 <h1 align="center">Momus</h1>
