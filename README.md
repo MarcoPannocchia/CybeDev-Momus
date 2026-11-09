@@ -1,6 +1,6 @@
 # Momus
 
-![Momus logo: a Greek theatrical mask with a magnifying lens over one eye](social-preview/logo.png)
+![Momus logo: a Greek theatrical mask with a magnifying lens over one eye](assets/social-preview.png)
 
 *A cheap code-commenting pipeline that does not trust its own comments.*
 
@@ -8,7 +8,7 @@
 
 Momus is a small Python pipeline that documents freshly written code while spending very few tokens. A **local language model** does the repetitive work. A **stronger model** only does the final check.
 
-It is named after Momus, the Greek god of criticism, because the project does not trust generated comments: it verifies them.
+It is named after Momus, the Gree<k god of criticism, because the project does not trust generated comments: it verifies them.
 
 > **Status: early work in progress.** The design below is settled, but the code is being built step by step. Benchmarks and before/after examples will be added as each part works, including the cases where it fails.
 
