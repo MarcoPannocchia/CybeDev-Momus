@@ -84,8 +84,9 @@ comments and docstrings.**
 - A snapshot keeps the code together with the benchmark results and the
   environment they were measured in, so any number in the README can be traced
   to the code that produced it
-- Git tags and `CHANGELOG.md` entries accompany snapshots, but are created only
-  when the maintainer asks
+- Git tags accompany snapshots, but are created only when the maintainer asks.
+  `CHANGELOG.md` entries go under `[Unreleased]` as work happens; turning them
+  into a versioned release is done only when the maintainer asks
 - Do not bump version strings, create a tag or a release unless the maintainer
   explicitly asks
 - Do not commit or push unless the maintainer explicitly asks. Leave changes
@@ -97,6 +98,12 @@ comments and docstrings.**
   benchmark summary, known limits, model-license note
 - `plan-Momus.md` — working tool, not reference documentation. Update its
   checkboxes as steps complete; mark `[x]` only when verified
+- `CHANGELOG.md` — what changed, one line per change, under `[Unreleased]`
+  until a release is requested
+- `WORKLOG.md` — tests run, choices made and why. Both files are updated at
+  the end of every step with the `work-log` skill
+- `requirements.txt` / `requirements-dev.txt` — kept in sync with the real
+  dependencies by the `deps-sync` skill, for one-command install
 - `benchmarks/` — raw benchmark results, one file per run, with the
   measurement conditions
 - Do not create a second source of truth: if a concept is already documented in

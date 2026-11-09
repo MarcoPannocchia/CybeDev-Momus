@@ -19,7 +19,7 @@ criterion, and anything not yet verified is marked as such.
   written yet**. Last updated **2026-11-09**
 - Language rules: this plan, all code, comments, docstrings, commit messages
   and the README are in **English**. Explanations to the maintainer in chat are
-  in Italian
+  also in English
 
 **Working rules for the agent (read before touching anything)**
 

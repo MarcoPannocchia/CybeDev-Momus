@@ -30,9 +30,9 @@ module layout, open decisions); this file wins on process conventions
 
 - The maintainer is new to local models and LLM pipelines. Work **one plan step
   at a time**. At the end of each step: stop, explain what was written and why
-  (in Italian, plain words), and wait for the OK before moving on
+  (in English, plain words), and wait for the OK before moving on
 - Code, comments, docstrings, commit messages, README and this file are in
-  **English**. Chat explanations to the maintainer are in Italian
+  **English**. Chat explanations to the maintainer are also in English
 - Say plainly what was not run or not verified. Never claim a test passed if it
   was not executed
 - When asking the maintainer to run something, give **one command at a time**
