@@ -1,12 +1,10 @@
 <p align="center">
-  <img src="assets/social-preview.png" alt="Momus logo: a Greek theatrical mask with a magnifying lens over one eye">
+  <img src="assets/logo.png" alt="Momus logo: a Greek theatrical mask with a magnifying lens over one eye" width="320">
 </p>
 
-<h1 align="center">Momus</h1>
+![Momus logo: a Greek theatrical mask with a magnifying lens over one eye](assets/logo.png)
 
-<p align="center">
-  <em>A cheap code-commenting pipeline that does not trust its own comments.</em>
-</p>
+*A cheap code-commenting pipeline that does not trust its own comments.*
 
 ---
 
@@ -21,14 +19,14 @@ It is named after Momus, the Greek god of criticism, because the project does no
 Three stages, named after figures from Greek mythology:
 
 | Stage | Name | What it does | Model needed |
-|-------|------|--------------|--------------|
+| ------- | ------ | -------------- | -------------- |
 | 1 | **Clio** | Adds comments and docstrings to the files changed in your `git diff`, one file or function at a time. | Local model |
 | 2 | **Argus** | Compares the code before and after using Python's `ast` module, ignoring comments and docstrings. If the code changed in any way, the output is discarded. | None |
 | 3 | **Momus** | Builds a compact diff of the comments only and sends it to a stronger model, which flags comments that are false, redundant or inconsistent across modules. | Strong model |
 
 The review output is deliberately short: **file, line, problem**.
 
-```
+```text
 git diff  ->  Clio (local LLM)  ->  Argus (AST guard)  ->  Momus (strong LLM review)
               writes comments       rejects any code      flags wrong or
                                     change                redundant comments
