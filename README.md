@@ -1,6 +1,4 @@
-<p align="center">
-  <img src="assets/logo.png" alt="Momus logo: a Greek theatrical mask with a magnifying lens over one eye" width="320">
-</p>
+# Momus
 
 ![Momus logo: a Greek theatrical mask with a magnifying lens over one eye](assets/logo.png)
 
