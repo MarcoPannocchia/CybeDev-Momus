@@ -23,3 +23,7 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# Tests that call a real local model server are skipped unless asked for:
+#   pytest -m integration
+addopts = "-m 'not integration'"
+markers = ["integration: needs a running local model server (Ollama); skipped by default"]

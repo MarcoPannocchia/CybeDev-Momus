@@ -1,0 +1,24 @@
+# Example Momus configuration. Settings only: never put API keys here
+# (use environment variables such as ANTHROPIC_API_KEY).
+
+[local]
+# Any server that speaks the OpenAI chat format works (Ollama, llama.cpp,
+# LM Studio). Ollama's default address is shown.
+base_url = "http://localhost:11434/v1"
+
+# Use the original model tag, not a customized variant, so system prompts
+# do not distort comparisons.
+model = "qwen2.5-coder:1.5b"
+
+# 0 = as repeatable as possible.
+temperature = 0.0
+
+# Optional cap on the length of the reply, in tokens. Leave it out for no cap.
+# max_tokens = 1024
+
+# Seconds to wait for a reply. CPU-only models can be slow.
+timeout = 600.0
+
+# The context window is NOT set here: the /v1 endpoint cannot set it per
+# request. For Ollama, set the OLLAMA_CONTEXT_LENGTH environment variable
+# (for example 8192) before starting the server, or use a Modelfile.
