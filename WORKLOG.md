@@ -3,6 +3,49 @@
 Tests run, choices made and why, newest first. Maintained by the `work-log`
 skill. User-facing changes are summarized in [CHANGELOG.md](CHANGELOG.md).
 
+## 2026-11-10 — Local backend (plan §6)
+
+**Changed**
+- `src/momus/backends/__init__.py`: `Backend` protocol and `BackendError`
+- `src/momus/backends/local.py`: `LocalBackend`, one POST to
+  `/v1/chat/completions` with `urllib`; HTTP, network and malformed-reply
+  failures all become `BackendError`
+- `src/momus/backends/fake.py`: `FakeBackend` (canned replies, records prompts)
+- `src/momus/config.py` and `momus.toml`: `[local]` settings; unknown keys and
+  invalid TOML are rejected; a missing file gives defaults
+- `tests/test_backends.py`: 16 tests (the local client runs against a stub HTTP
+  server on localhost, no model involved), plus 1 integration test
+- `pyproject.toml`: `integration` marker, skipped by default
+- `plan-Momus.md` §6 and §15 item 2 checked
+
+**Tests**
+- Baseline before changes: 7 passed (`.venv/bin/pytest`)
+- After: `.venv/bin/pytest` — 23 passed, 1 deselected (integration)
+- `.venv/bin/pytest -m integration` — 1 passed against the real Ollama
+- Manual check, three real models through `LocalBackend` with a one-sentence
+  prompt: `qwen2.5-coder:1.5b` 1.6s (already loaded), `qwen2.5-coder:7b` 11.8s,
+  `deepseek-coder-v2:16b` 11.1s, each with a sensible reply. These timings
+  include model load, were taken without recording power or load conditions,
+  and are **not benchmark numbers**
+- Context test, one run on Ollama 0.23.3: sending `options.num_ctx=2048` to
+  `/v1/chat/completions` was ignored (`ollama ps` still showed 4096)
+- Not run: `qwen3-coder:30b`; the CLI is not wired to the backend yet
+
+**Decisions**
+- Plain HTTP (`urllib`) and the `/v1` endpoint — decided by the maintainer:
+  no dependency, portable across Ollama / llama.cpp / LM Studio, and Ollama
+  stays customizable by the user
+- No `num_ctx` key in `momus.toml` — follows from the `/v1` choice; an unknown
+  key is rejected so nobody believes it has an effect
+- `max_tokens` and `timeout` added to the config — assistant's choice, open to
+  change: output length dominates time on this CPU, and large models load slowly
+- Stub-server tests instead of mocking `urllib` — assistant's choice: they
+  exercise the real request path without any model
+
+**Open / next**
+- Uncommitted: all of the above, waiting for the maintainer
+- Next plan step: §7, Argus (AST guard), with tests for every edge case
+
 ## 2026-11-09 — Project skeleton (plan §5)
 
 **Changed**

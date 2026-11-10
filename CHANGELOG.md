@@ -8,6 +8,12 @@ are in [WORKLOG.md](WORKLOG.md).
 
 ### Added
 
+- Backend layer: common `Backend` interface, `LocalBackend` (any OpenAI-format
+  local server, such as Ollama, over plain HTTP) and `FakeBackend` for tests
+- `momus.toml` example config and a loader (`momus.config`); the context size
+  is left to the server
+- `integration` test marker: tests needing a real Ollama are skipped by default
+  (`pytest -m integration` runs them)
 - Project skeleton: `pyproject.toml`, `src/momus` package and a `momus` CLI
   with placeholder subcommands `comment`, `guard`, `review`, `bench`
   (they exit with status 1 until implemented)

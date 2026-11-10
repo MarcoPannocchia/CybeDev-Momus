@@ -213,14 +213,22 @@ momus/
 
 ## 6. Phase B — Local backend
 
-- [ ] Common backend interface: one function that takes a prompt and returns
-      text; all backends implement it
-- [ ] `backends/local.py`: client for the local server (the `openai` library
-      pointed at `localhost`, or plain HTTP — explain the choice)
-- [ ] Parameters read from `momus.toml`: base URL, model name, temperature
-      (default 0), max context (start with `num_ctx` ~8192; Ollama's default is
-      small and a huge context eats RAM)
-- **Done when:** a script calls `qwen2.5-coder:1.5b` and prints the answer
+- [x] Common backend interface: one function that takes a prompt and returns
+      text; all backends implement it — `Backend` protocol in
+      `backends/__init__.py`, plus `FakeBackend` for tests (2026-11-10)
+- [x] `backends/local.py`: client for the local server — plain HTTP with the
+      standard library (`urllib`), chosen by the maintainer 2026-11-10: no new
+      dependency for a single JSON request
+- [x] Parameters read from `momus.toml`: base URL, model name, temperature
+      (default 0), optional `max_tokens`, timeout. **Context size is not in the
+      file**: `/v1` ignores it per request (checked once on Ollama 0.23.3: an
+      `options.num_ctx` field was ignored and the context stayed at 4096), so
+      it is set on the server (`OLLAMA_CONTEXT_LENGTH` or a Modelfile). The
+      maintainer chose `/v1` so the backend stays portable and Ollama stays
+      user-customizable
+- **Done when:** a script calls `qwen2.5-coder:1.5b` and prints the answer —
+  met 2026-11-10 (also tried `qwen2.5-coder:7b` and `deepseek-coder-v2:16b`;
+  `qwen3-coder:30b` not tried yet)
 
 ---
 
@@ -377,7 +385,7 @@ momus/
 
 - [ ] 1. §5 — skeleton, `.gitignore`, first commit (skeleton and `.gitignore`
       done 2026-11-09; the skeleton commit waits for the maintainer's request)
-- [ ] 2. §6 — local backend talking to `qwen2.5-coder:1.5b`
+- [x] 2. §6 — local backend talking to `qwen2.5-coder:1.5b`
 - [ ] 3. §7 — Argus with tests (before any file is written by a model)
 - [ ] 4. §8 — cleaning and splitting
 - [ ] 5. §9 — Clio, including the quality comparison and the output-mode decision
