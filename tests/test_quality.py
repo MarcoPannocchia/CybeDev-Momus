@@ -116,6 +116,13 @@ def test_placeholder_docstring_reply_is_rejected_and_nothing_is_inserted():
         ("window must be at least 1", 'if window < 1:\n    raise ValueError("window must be at least 1")'),
         ("Loop over the values.", "for value in values:"),
         ("Sort the values in ascending order.", "ordered = sorted(values)"),
+        ("This list comprehension creates a string for each severity.", "parts = [f(n) for n in names]"),
+        ("This joins all the parts together and adds the suffix.", "return ', '.join(parts) + suffix"),
+        ("The condition `x > width` checks whether the word is too wide.", "if x > width:"),
+        ("If the input is below 2, it returns the input directly.", "return n"),
+        ("Otherwise, it calls itself twice and adds the results.", "return f(n - 1) + f(n - 2)"),
+        ("It sums the values and divides by their count.", "return sum(v) / len(v)"),
+        ("word " * 40, "x = 1"),
     ],
 )
 def test_comments_that_describe_or_repeat_the_code_are_dropped(text, statement):
@@ -129,6 +136,10 @@ def test_comments_that_describe_or_repeat_the_code_are_dropped(text, statement):
         ("The median needs ordered values, so sort a copy first.", "ordered = sorted(values)"),
         ("Back off exponentially so a struggling server gets time to recover.", "time.sleep(delay * (2 ** attempt))"),
         ("Windows start at 1; a zero window would divide by nothing.", "if window < 1:\n    raise ValueError('bad')"),
+        ("This avoids a second pass over the list.", "total = running"),
+        ("This is needed because the server returns None on a timeout.", "if reply is None:"),
+        ("The cache is cleared first so a stale entry is never served.", "cache.clear()"),
+        ("Since the length is odd, the median is the middle element.", "if len(ordered) % 2:"),
     ],
 )
 def test_comments_that_give_a_reason_are_kept(text, statement):

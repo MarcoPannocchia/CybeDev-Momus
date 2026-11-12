@@ -141,6 +141,23 @@ _DESCRIPTIVE_OPENER = re.compile(
     r"validates?|assigns?|defines?|retrieves?|converts?)\b",
     re.IGNORECASE,
 )
+# Other ways a comment narrates instead of explaining:
+#   "This list comprehension creates ..."   ("This" + a noun, unless it gives a reason)
+#   "The `x` ..." / "The condition `x` ..."  (the code quoted back)
+#   "If the list is empty, it raises ..."    ("If ..., it ...")
+#   "Otherwise, it returns ..."
+# "This is needed because ...", "This avoids ..." give a reason and are kept.
+_NARRATION = re.compile(
+    r"^this\s+(?!(is|was|avoids?|prevents?|keeps?|lets?|allows?|guards?|protects?|"
+    r"stops?|means|way|must|should|needs?|has to|exists?)\b)\w+"
+    r"|^the\s+(\w+\s+){0,2}`[^`]+`"
+    r"|^(if|when)\b[^,]{3,80},\s*(it|we)\b"
+    r"|^(otherwise|then|next|finally),?\s+(it|we)\b"
+    r"|^it\s+\w+s\b",
+    re.IGNORECASE,
+)
+# An inline comment longer than this is a paragraph of narration.
+MAX_COMMENT_CHARS = 160
 _WORD = re.compile(r"[a-z][a-z0-9]{2,}")
 _STOPWORDS = frozenset(
     "the and for with that this from when are was will then into each all any can not its has have "
@@ -193,14 +210,18 @@ def _words(text: str) -> set[str]:
 def comment_problem(text: str, statement: str) -> str | None:
     """Return why a comment above ``statement`` should be dropped, or None.
 
-    Dropped: placeholders; comments that open by describing "this function" or
-    "this line"; and comments whose words are mostly found in the statement
+    Dropped: placeholders; comments that narrate ("This checks ...", "The `x`
+    ...", "If ..., it ...", "Otherwise, it ..."); comments longer than a couple
+    of lines; and comments whose words are mostly found in the statement
     itself, which only say again what the code says.
     """
     if is_placeholder(text):
         return "the comment is a placeholder"
-    if _DESCRIPTIVE_OPENER.match(text.strip()):
+    stripped = text.strip()
+    if _DESCRIPTIVE_OPENER.match(stripped) or _NARRATION.match(stripped):
         return "the comment describes the code instead of explaining it"
+    if len(stripped) > MAX_COMMENT_CHARS:
+        return "the comment is too long for an inline comment"
     words = _words(text)
     if len(words) < MIN_WORDS:
         return None
