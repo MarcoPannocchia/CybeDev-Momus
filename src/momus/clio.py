@@ -63,6 +63,8 @@ class Outcome:
     name: str
     status: str  # ADDED, SKIPPED (left alone on purpose) or REJECTED (a check failed)
     reason: str
+    kind: str = ""  # "docstring" or "comment"; empty for a whole-file outcome
+    cause: str = ""  # for REJECTED: "backend", "reply", "anchor" or "guard"
 
 
 @dataclass(frozen=True)
@@ -352,7 +354,7 @@ def _targets(source: str, lines: list[str], want_comments: bool):
     def consider(node, name, kind, context, piece_lines, offset):
         slot = _slot(node, lines, offset)
         if isinstance(slot, str):
-            doc_skips.append(Outcome(name, SKIPPED, slot))
+            doc_skips.append(Outcome(name, SKIPPED, slot, "docstring"))
         else:
             index, indent = slot
             code = _code_of(node, piece_lines)
@@ -368,7 +370,7 @@ def _targets(source: str, lines: list[str], want_comments: bool):
                 eligible.append(found)
         if len(eligible) < MIN_STATEMENTS:
             comment_skips.append(
-                Outcome(f"{name} comments", SKIPPED, "too few statements to comment")
+                Outcome(f"{name} comments", SKIPPED, "too few statements to comment", "comment")
             )
             return
         slots = dict(enumerate(eligible, start=1))
@@ -451,6 +453,11 @@ def _passes_guard(original: str, new: str, inserted: list[int]) -> str | None:
     return None
 
 
+def _cause_of(error: Exception) -> str:
+    """Name where a failure came from: the server, or the shape of the reply."""
+    return "backend" if isinstance(error, BackendError) else "reply"
+
+
 def _sits_above(new: str, inserted: list[int], original_line: str) -> bool:
     """Tell whether the line right after the inserted block is ``original_line``."""
     new_lines = argus.split_lines(new)
@@ -489,18 +496,20 @@ def comment_source(source: str, backend: Backend, mode: str = "both") -> ClioRes
     if want_comments:
         outcomes.extend(comment_skips)
 
-    accepted: list[tuple[str, int, list[str]]] = []
+    accepted: list[tuple[str, int, list[str], str]] = []
 
-    def try_insert(name: str, index: int, block: list[str], original_line: str | None) -> None:
+    def try_insert(
+        name: str, kind: str, index: int, block: list[str], original_line: str | None
+    ) -> None:
         candidate, inserted = _insert(lines, [(index, block)])
         failure = _passes_guard(source, candidate, inserted)
         if failure is None and original_line is not None:
             if not _sits_above(candidate, inserted, original_line):
                 failure = "the comment is not directly above its statement"
         if failure:
-            outcomes.append(Outcome(name, REJECTED, failure))
+            outcomes.append(Outcome(name, REJECTED, failure, kind, "guard"))
         else:
-            accepted.append((name, index, block))
+            accepted.append((name, index, block, kind))
 
     # Docstrings are handled first, so that when a docstring and a comment land
     # before the same line, the docstring is the one above.
@@ -509,10 +518,12 @@ def comment_source(source: str, backend: Backend, mode: str = "both") -> ClioRes
         try:
             text = parse_reply(backend.complete(prompt))
         except (BackendError, ClioError) as exc:
-            outcomes.append(Outcome(target.name, REJECTED, str(exc)))
+            outcomes.append(
+                Outcome(target.name, REJECTED, str(exc), "docstring", _cause_of(exc))
+            )
             continue
         block = format_docstring(text, target.indent, _ending_of(lines, target.index))
-        try_insert(target.name, target.index, block, None)
+        try_insert(target.name, "docstring", target.index, block, None)
 
     for target in comment_targets:
         prompt = build_comment_prompt(target.kind, target.code, target.context)
@@ -520,37 +531,46 @@ def comment_source(source: str, backend: Backend, mode: str = "both") -> ClioRes
         try:
             entries = parse_comments(backend.complete(prompt))
         except (BackendError, ClioError) as exc:
-            outcomes.append(Outcome(label, REJECTED, str(exc)))
+            outcomes.append(Outcome(label, REJECTED, str(exc), "comment", _cause_of(exc)))
             continue
         if not entries:
-            outcomes.append(Outcome(label, SKIPPED, "the model proposed no comments"))
+            outcomes.append(Outcome(label, SKIPPED, "the model proposed no comments", "comment"))
         seen: set[int] = set()
         for number, text in entries:
             name = f"{target.name} S{number}"
             if number in seen:
-                outcomes.append(Outcome(name, REJECTED, "the statement was named twice"))
+                outcomes.append(
+                    Outcome(name, REJECTED, "the statement was named twice", "comment", "anchor")
+                )
                 continue
             seen.add(number)
             if number not in target.slots:
-                outcomes.append(Outcome(name, REJECTED, "not a numbered statement"))
+                outcomes.append(
+                    Outcome(name, REJECTED, "not a numbered statement", "comment", "anchor")
+                )
                 continue
             if not text:
-                outcomes.append(Outcome(name, REJECTED, "the comment is empty"))
+                outcomes.append(
+                    Outcome(name, REJECTED, "the comment is empty", "comment", "reply")
+                )
                 continue
             index, indent = target.slots[number]
             block = format_comment(text, indent, _ending_of(lines, index))
-            try_insert(name, index, block, lines[index])
+            try_insert(name, "comment", index, block, lines[index])
 
     if not accepted:
         return ClioResult(source, tuple(outcomes), ())
-    text, inserted = _insert(lines, [(index, block) for _, index, block in accepted])
+    text, inserted = _insert(lines, [(index, block) for _, index, block, _ in accepted])
     failure = _passes_guard(source, text, inserted)
     if failure:
         # Should not happen, since each insertion passed alone. If it does,
         # keep nothing: the original file is the only text known to be safe.
-        outcomes.extend(Outcome(n, REJECTED, f"combined check: {failure}") for n, _, _ in accepted)
+        outcomes.extend(
+            Outcome(n, REJECTED, f"combined check: {failure}", k, "guard")
+            for n, _, _, k in accepted
+        )
         return ClioResult(source, tuple(outcomes), ())
-    outcomes.extend(Outcome(name, ADDED, "added") for name, _, _ in accepted)
+    outcomes.extend(Outcome(name, ADDED, "added", kind) for name, _, _, kind in accepted)
     return ClioResult(text, tuple(outcomes), tuple(inserted))
 
 

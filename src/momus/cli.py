@@ -1,7 +1,7 @@
 """Command-line entry point for Momus.
 
-``comment`` is implemented (docstrings and inline comments). The other subcommands
-are placeholders that report they are not implemented and exit with a
+``comment`` (docstrings and inline comments) and ``bench`` (compare models) are
+implemented. The other subcommands are placeholders that report they are not implemented and exit with a
 non-zero status, so nothing can be mistaken for working behaviour.
 """
 
@@ -11,6 +11,7 @@ import sys
 from dataclasses import replace
 from pathlib import Path
 
+from momus import bench
 from momus.backends import Backend, BackendError
 from momus.clio import MODES, ClioError, comment_source, read_text_exact, write_text_atomic
 from momus.config import build_local_backend, load_local_settings
@@ -49,6 +50,30 @@ def build_parser() -> argparse.ArgumentParser:
                 help="what to add: docstrings, inline comments, or both (default)",
             )
             sub.add_argument("--config", type=Path, default="momus.toml", help="config file")
+        if name == "bench":
+            sub.add_argument(
+                "--models",
+                nargs="+",
+                help="models to compare (default: the four models of the plan)",
+            )
+            sub.add_argument(
+                "--files",
+                nargs="+",
+                help=f"files to run on (default: {bench.DEFAULT_SAMPLES})",
+            )
+            sub.add_argument("--mode", choices=MODES, default="both", help="what to generate")
+            sub.add_argument("--out", default=bench.DEFAULT_OUT, help="folder for the result files")
+            sub.add_argument("--config", type=Path, default="momus.toml", help="config file")
+            sub.add_argument(
+                "--notes",
+                default="",
+                help="free text saved with the conditions, e.g. what was closed or running",
+            )
+            sub.add_argument(
+                "--keep-loaded",
+                action="store_true",
+                help="do not unload models before each run (the first request then may be warm)",
+            )
     return parser
 
 
@@ -92,7 +117,8 @@ def main(argv: list[str] | None = None) -> int:
     """Run the CLI and return the process exit status.
 
     With no command it prints the help text and returns 0. A known command
-    returns 1 because none of them is implemented yet; ``comment`` runs Clio.
+    returns 1 because none of them is implemented yet; ``comment`` runs Clio and
+    ``bench`` compares models.
     """
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -109,6 +135,8 @@ def main(argv: list[str] | None = None) -> int:
             print(f"momus comment: {exc}", file=sys.stderr)
             return 1
         return comment_command(args.files, backend, args.write, args.mode)
+    if args.command == "bench":
+        return bench.main(args)
     print(f"momus {args.command}: not implemented yet", file=sys.stderr)
     return 1
 

@@ -32,6 +32,8 @@ class LocalBackend:
         self.temperature = temperature
         self.max_tokens = max_tokens
         self.timeout = timeout
+        # Token counts of the last reply, as the server reported them (or None).
+        self.last_usage: dict | None = None
 
     def complete(self, prompt: str) -> str:
         """Send ``prompt`` as one user message and return the model's reply.
@@ -67,6 +69,7 @@ class LocalBackend:
         except json.JSONDecodeError as exc:
             raise BackendError(f"server reply is not valid JSON: {exc}") from exc
 
+        self.last_usage = body.get("usage") if isinstance(body, dict) else None
         try:
             content = body["choices"][0]["message"]["content"]
         except (KeyError, IndexError, TypeError) as exc:
