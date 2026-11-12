@@ -134,7 +134,11 @@ def _add_summary_line(text: str) -> str:
 
 # "This function ..." and "The `retry` function ...": a description, not a reason.
 _DESCRIPTIVE_OPENER = re.compile(
-    r"^(this|the|these)\s+(`[^`]+`\s+|\w+\s+)?(function|method|class|code|statement|line|lines|snippet)\b",
+    r"^(this|the|these)\s+(`[^`]+`\s+|\w+\s+)?(function|method|class|code|statement|line|lines|snippet)\b"
+    # "This checks ...", "It returns ...": a verb saying what the line does.
+    r"|^(this|it)\s+(checks?|ensures?|calculates?|computes?|iterates?|loops?|returns?|raises?|sorts?|"
+    r"sets?|creates?|initiali[sz]es?|updates?|adds?|removes?|stores?|gets?|handles?|verif(y|ies)|"
+    r"validates?|assigns?|defines?|retrieves?|converts?)\b",
     re.IGNORECASE,
 )
 _WORD = re.compile(r"[a-z][a-z0-9]{2,}")
@@ -158,14 +162,32 @@ _KEYWORD_WORDS = {
     "import": "import imports",
 }
 RESTATE_RATIO = 0.6
-MIN_WORDS = 3
+MIN_WORDS = 2
+
+
+def _stem(word: str) -> str:
+    """Cut a word down to a rough stem, so "sorted", "sorts" and "sort" meet.
+
+    Crude on purpose: it only has to be the same on both sides of a comparison.
+    """
+    if word.endswith("ies") and len(word) > 4:
+        word = word[:-3] + "y"
+    elif word.endswith("ing") and len(word) > 5:
+        word = word[:-3]
+    elif word.endswith("ed") and len(word) > 4:
+        word = word[:-2]
+    elif word.endswith("s") and not word.endswith("ss") and len(word) > 3:
+        word = word[:-1]
+    if word.endswith("e") and len(word) > 3:
+        word = word[:-1]
+    return word
 
 
 def _words(text: str) -> set[str]:
-    """Content words of ``text``, with identifiers also split into their parts."""
+    """Stemmed content words of ``text``, with identifiers also split into their parts."""
     spaced = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", text).replace("_", " ")
     found = set(_WORD.findall(text.lower())) | set(_WORD.findall(spaced.lower()))
-    return found - _STOPWORDS
+    return {_stem(word) for word in found - _STOPWORDS}
 
 
 def comment_problem(text: str, statement: str) -> str | None:
@@ -179,12 +201,12 @@ def comment_problem(text: str, statement: str) -> str | None:
         return "the comment is a placeholder"
     if _DESCRIPTIVE_OPENER.match(text.strip()):
         return "the comment describes the code instead of explaining it"
-    words = _words(text) - {w for w in _STOPWORDS}
+    words = _words(text)
     if len(words) < MIN_WORDS:
         return None
     vocabulary = _words(statement)
     for keyword in re.findall(r"[A-Za-z_]+", statement):
-        vocabulary |= set(_KEYWORD_WORDS.get(keyword, "").split())
+        vocabulary |= _words(_KEYWORD_WORDS.get(keyword, ""))
     if len(words & vocabulary) / len(words) >= RESTATE_RATIO:
         return "the comment only repeats the statement it is above"
     return None
