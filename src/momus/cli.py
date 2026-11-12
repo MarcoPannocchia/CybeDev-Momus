@@ -1,6 +1,6 @@
 """Command-line entry point for Momus.
 
-``comment`` is implemented (docstrings only for now). The other subcommands
+``comment`` is implemented (docstrings and inline comments). The other subcommands
 are placeholders that report they are not implemented and exit with a
 non-zero status, so nothing can be mistaken for working behaviour.
 """
@@ -12,7 +12,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from momus.backends import Backend, BackendError
-from momus.clio import ClioError, comment_source, read_text_exact, write_text_atomic
+from momus.clio import MODES, ClioError, comment_source, read_text_exact, write_text_atomic
 from momus.config import build_local_backend, load_local_settings
 
 # Subcommand name -> one-line help. The stages behind them are built in later
@@ -42,11 +42,19 @@ def build_parser() -> argparse.ArgumentParser:
                 help="write the changes to the files (default: only show the diff)",
             )
             sub.add_argument("--model", help="model to use instead of the one in momus.toml")
+            sub.add_argument(
+                "--mode",
+                choices=MODES,
+                default="both",
+                help="what to add: docstrings, inline comments, or both (default)",
+            )
             sub.add_argument("--config", type=Path, default="momus.toml", help="config file")
     return parser
 
 
-def comment_command(files: list[Path], backend: Backend, write: bool, out=None) -> int:
+def comment_command(
+    files: list[Path], backend: Backend, write: bool, mode: str = "both", out=None
+) -> int:
     """Run Clio on ``files``; show a diff, and write only if ``write`` is true.
 
     Returns 0 if every file could be read and processed, 1 otherwise.
@@ -60,7 +68,7 @@ def comment_command(files: list[Path], backend: Backend, write: bool, out=None) 
             print(f"{path}: cannot read: {exc}", file=sys.stderr)
             status = 1
             continue
-        result = comment_source(source, backend)
+        result = comment_source(source, backend, mode)
         for outcome in result.outcomes:
             print(f"{path}: {outcome.name}: {outcome.status} - {outcome.reason}", file=out)
         if not result.changed:
@@ -100,7 +108,7 @@ def main(argv: list[str] | None = None) -> int:
         except BackendError as exc:
             print(f"momus comment: {exc}", file=sys.stderr)
             return 1
-        return comment_command(args.files, backend, args.write)
+        return comment_command(args.files, backend, args.write, args.mode)
     print(f"momus {args.command}: not implemented yet", file=sys.stderr)
     return 1
 

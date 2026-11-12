@@ -1,0 +1,25 @@
+You add short inline comments to Python code.
+
+Below is a {{KIND}}. A left column numbers some of its statements (S1, S2, ...).
+Not every statement has a number; you can only comment on the numbered ones.
+
+Rules:
+- Comment only where a reader would wonder WHY the code does something: a
+  reason, a hidden constraint, a surprising choice. Never describe what the
+  code plainly does.
+- Fewer is better. Write at most 3 comments. If nothing needs one, reply NONE.
+- One line per comment, plain text, 80 characters at most.
+- Do not write, repeat or change any code.
+
+Reply in exactly this format and nothing else:
+
+COMMENTS:
+S3: the comment text
+S7: the comment text
+
+or, if nothing needs a comment:
+
+COMMENTS: NONE
+
+{{CONTEXT}}Code:
+{{CODE}}

@@ -1,21 +1,25 @@
-"""Clio, the commenting stage: adds missing docstrings with a model.
+"""Clio, the commenting stage: adds missing docstrings and inline comments.
 
-The model only ever returns the text of a docstring. Momus finds the right
-place with ``ast`` line numbers and inserts the docstring itself, so the model
-never has the chance to touch the code. Every insertion is then checked twice
-by Argus (the code is identical, and removing the inserted lines gives back
-the original text exactly), and anything that fails is dropped.
+The model never writes code and never decides where anything goes. For a
+docstring it returns only the text. For inline comments it is shown the code
+with numbered statements (S1, S2, ...) and answers "S3: comment text". Momus
+finds the place with ``ast`` line numbers and inserts the lines itself. Every
+insertion is then checked twice by Argus (the code is identical, and removing
+the inserted lines gives back the original text exactly), and anything that
+fails is dropped.
 
 Nothing here writes to a file except ``write_text_atomic``, which callers use
 only after the checks have passed.
 """
 
 import ast
+import io
 import os
 import re
 import shutil
 import tempfile
 import textwrap
+import tokenize
 from dataclasses import dataclass
 from importlib import resources
 from pathlib import Path
@@ -23,27 +27,38 @@ from pathlib import Path
 from momus import argus
 from momus.backends import Backend, BackendError
 from momus.cleaning import clean_output, strip_reasoning
-from momus.splitter import SplitError, split_source
+from momus.splitter import split_source
 
 ADDED = "added"
 SKIPPED = "skipped"
 REJECTED = "rejected"
 
-_MARKER = re.compile(r"\A\s*DOCSTRING:[ \t]*", re.IGNORECASE)
+# What to generate. "both" asks for docstrings first, then comments.
+MODES = ("both", "docstrings", "comments")
+
+# A function with fewer numbered statements than this is not offered for
+# comments: there is little to explain, and small models over-comment.
+MIN_STATEMENTS = 3
+
+_DOC_MARKER = re.compile(r"\A\s*DOCSTRING:[ \t]*", re.IGNORECASE)
+_COMMENTS_MARKER = re.compile(r"\A\s*COMMENTS:[ \t]*", re.IGNORECASE)
+# "S3: text" (a dash, dot or parenthesis after the number is tolerated too).
+_ENTRY = re.compile(r"^\s*S(\d+)\s*[:.)-]\s*(.*\S)\s*$")
 # Where a model starts repeating the code after its answer: a "Code:" label or
-# a fence. The docstring ends there.
+# a fence. The answer ends there.
 _ECHO = re.compile(r"^(?:[ \t]*```|Code:)", re.MULTILINE)
 _ENDING = re.compile(r"\r\n|\r|\n")
 _FUNCTIONS = (ast.FunctionDef, ast.AsyncFunctionDef)
+_DEFINITIONS = (*_FUNCTIONS, ast.ClassDef)
 
 
 class ClioError(Exception):
-    """Raised for a model reply that cannot be turned into a docstring."""
+    """Raised for a model reply that cannot be used."""
 
 
 @dataclass(frozen=True)
 class Outcome:
-    """What happened to one function, method or class."""
+    """What happened to one function, method, class or comment."""
 
     name: str
     status: str  # ADDED, SKIPPED (left alone on purpose) or REJECTED (a check failed)
@@ -77,20 +92,62 @@ class _Target:
     indent: str
 
 
-# --- Prompt and reply ------------------------------------------------------
+@dataclass(frozen=True)
+class _CommentTarget:
+    name: str
+    kind: str  # "function" or "method"
+    code: str  # source shown to the model, with statement numbers in a left column
+    context: str
+    slots: dict  # statement number -> (0-based line index, indent)
+
+
+# --- Prompts and replies ---------------------------------------------------
+
+
+def _load(name: str) -> str:
+    """Read a prompt template; they live in plain files so they are easy to edit."""
+    return resources.files("momus").joinpath(f"prompts/{name}").read_text(encoding="utf-8")
+
+
+def _fill(template: str, **values: str) -> str:
+    """Fill ``{{NAME}}`` markers by plain replacement, because code is full of braces."""
+    for key, value in values.items():
+        template = template.replace("{{" + key.upper() + "}}", value)
+    return template
 
 
 def load_prompt() -> str:
-    """Read the prompt template; it lives in a plain file so it is easy to edit."""
-    return resources.files("momus").joinpath("prompts/clio.txt").read_text(encoding="utf-8")
+    """Read the docstring prompt template."""
+    return _load("clio.txt")
 
 
 def build_prompt(kind: str, code: str, context: str = "") -> str:
-    """Fill the template. Plain replacement, because code is full of braces."""
-    prompt = load_prompt()
-    for marker, value in (("{{KIND}}", kind), ("{{CONTEXT}}", context), ("{{CODE}}", code)):
-        prompt = prompt.replace(marker, value)
-    return prompt
+    """Fill the docstring prompt."""
+    return _fill(load_prompt(), kind=kind, context=context, code=code)
+
+
+def build_comment_prompt(kind: str, code: str, context: str = "") -> str:
+    """Fill the inline-comment prompt; ``code`` carries the statement numbers."""
+    return _fill(_load("clio_comments.txt"), kind=kind, context=context, code=code)
+
+
+def _after_marker(reply: str, marker: re.Pattern, label: str) -> str:
+    """Return the part of a reply that follows ``marker``, without echoed code.
+
+    Raises:
+        ClioError: if the marker is not there.
+    """
+    text = strip_reasoning(reply)
+    match = marker.match(text)
+    if match is None:
+        # Perhaps the whole answer is inside a fence, or has a sentence before it.
+        text = clean_output(text)
+        match = marker.match(text)
+    if match is None:
+        raise ClioError(f"reply does not start with {label}")
+    # Read the marker before looking at fences: a model often repeats the code
+    # in a fence after its answer, and that fence is not the answer.
+    return _ECHO.split(text[match.end() :], maxsplit=1)[0]
 
 
 def parse_reply(reply: str) -> str:
@@ -104,18 +161,7 @@ def parse_reply(reply: str) -> str:
         ClioError: if the marker is missing, the text is empty, or it contains
             a triple double quote, which would end the docstring early.
     """
-    text = strip_reasoning(reply)
-    match = _MARKER.match(text)
-    if match is None:
-        # Perhaps the whole answer is inside a fence, or has a sentence before it.
-        text = clean_output(text)
-        match = _MARKER.match(text)
-    if match is None:
-        raise ClioError("reply does not start with DOCSTRING:")
-    # Read the marker before looking at fences: a model often repeats the code
-    # in a fence after its answer, and that fence is not the answer.
-    text = _ECHO.split(text[match.end() :], maxsplit=1)[0]
-    text = textwrap.dedent(text).strip()
+    text = textwrap.dedent(_after_marker(reply, _DOC_MARKER, "DOCSTRING:")).strip()
     for quote in ('"""', "'''"):
         if text.startswith(quote) and text.endswith(quote) and len(text) >= 2 * len(quote):
             text = text[len(quote) : -len(quote)].strip()
@@ -126,6 +172,34 @@ def parse_reply(reply: str) -> str:
         raise ClioError("the docstring contains a triple double quote")
     # A backslash would be read as an escape; doubling keeps the intended text.
     return text.replace("\\", "\\\\")
+
+
+def parse_comments(reply: str) -> list[tuple[int, str]]:
+    """Extract ``(statement number, comment text)`` pairs from a model reply.
+
+    The reply must contain a ``COMMENTS:`` line, followed by ``S3: text``
+    lines, or by ``NONE``. A leading ``#`` in the text is removed. The numbers
+    are not checked here: a number that points at nothing is the caller's
+    business, because it is worth counting.
+
+    Raises:
+        ClioError: if the marker is missing, or there is text but no line in
+            the ``S3: text`` format.
+    """
+    entries: list[tuple[int, str]] = []
+    unmatched = False
+    for line in _after_marker(reply, _COMMENTS_MARKER, "COMMENTS:").splitlines():
+        if not line.strip() or line.strip().upper() == "NONE":
+            continue
+        match = _ENTRY.match(line)
+        if match is None:
+            unmatched = True
+            continue
+        text = " ".join(match.group(2).lstrip("# \t").split())
+        entries.append((int(match.group(1)), text))
+    if unmatched and not entries:
+        raise ClioError("no line in the S<number>: <text> format")
+    return entries
 
 
 def format_docstring(text: str, indent: str, newline: str) -> list[str]:
@@ -139,12 +213,40 @@ def format_docstring(text: str, indent: str, newline: str) -> list[str]:
     return [f'{indent}"""{lines[0]}{newline}', *body, f'{indent}"""{newline}']
 
 
-# --- Finding where docstrings go -------------------------------------------
+def format_comment(text: str, indent: str, newline: str) -> list[str]:
+    """Lay out ``text`` as one or more ``#`` lines, wrapped to about 79 columns."""
+    width = max(20, 79 - len(indent) - 2)
+    return [f"{indent}# {line}{newline}" for line in textwrap.wrap(text, width=width)]
+
+
+# --- Finding where things go -----------------------------------------------
 
 
 def _first_line(node: ast.stmt) -> int:
     decorators = getattr(node, "decorator_list", [])
     return min([node.lineno, *(decorator.lineno for decorator in decorators)])
+
+
+def _is_docstring(statement: ast.stmt) -> bool:
+    return (
+        isinstance(statement, ast.Expr)
+        and isinstance(statement.value, ast.Constant)
+        and isinstance(statement.value.value, str)
+    )
+
+
+def _indent_of(line: str) -> str:
+    return line[: len(line) - len(line.lstrip(" \t"))]
+
+
+def _starts_line(statement: ast.stmt, line: str, indent: str) -> bool:
+    """Tell whether ``statement`` is the first thing on its (indented) line."""
+    if not indent:
+        return False
+    if getattr(statement, "decorator_list", None):
+        return line.lstrip().startswith("@")
+    # ast columns count UTF-8 bytes, so compare in bytes.
+    return statement.col_offset == len(indent.encode("utf-8"))
 
 
 def _slot(node: ast.AST, lines: list[str], offset: int) -> tuple[int, str] | str:
@@ -155,22 +257,73 @@ def _slot(node: ast.AST, lines: list[str], offset: int) -> tuple[int, str] | str
     body, which must start its own line.
     """
     first = node.body[0]
-    if isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant):
-        if isinstance(first.value.value, str):
-            return "already has a docstring (not Momus's to replace)"
+    if _is_docstring(first):
+        return "already has a docstring (not Momus's to replace)"
     line_number = _first_line(first) + offset
     line = lines[line_number - 1]
-    indent = line[: len(line) - len(line.lstrip(" \t"))]
-    decorated = bool(getattr(first, "decorator_list", None))
-    # ast columns count UTF-8 bytes, so compare in bytes.
-    starts_line = (
-        line.lstrip().startswith("@")
-        if decorated
-        else first.col_offset == len(indent.encode("utf-8"))
-    )
-    if not starts_line or not indent:
+    indent = _indent_of(line)
+    if not _starts_line(first, line, indent):
         return "the body does not start on its own indented line"
     return line_number - 1, indent
+
+
+def _statements(body: list[ast.stmt]) -> list[ast.stmt]:
+    """List the statements of a body in source order, nested blocks included.
+
+    Nested functions and classes count as one statement each and are not
+    entered: they are not targets of their own yet.
+    """
+    found: list[ast.stmt] = []
+
+    def visit(statements):
+        for statement in statements:
+            found.append(statement)
+            if isinstance(statement, _DEFINITIONS):
+                continue
+            for field in ("body", "orelse", "finalbody"):
+                visit(getattr(statement, field, None) or [])
+            for handler in getattr(statement, "handlers", None) or []:
+                visit(handler.body)
+            for case in getattr(statement, "cases", None) or []:
+                visit(case.body)
+
+    visit(body)
+    return sorted(found, key=_first_line)
+
+
+def _comment_slot(statement: ast.stmt, lines: list[str], offset: int, commented: set[int]):
+    """Return ``(index, indent)`` if a comment may go above ``statement``, else None.
+
+    Not offered: statements that share a line with another, ``elif`` branches,
+    and any statement that already has a comment above it or on its line. A
+    comment written by someone else is never joined or replaced.
+    """
+    number = _first_line(statement) + offset
+    line = lines[number - 1]
+    indent = _indent_of(line)
+    if not _starts_line(statement, line, indent):
+        return None
+    if isinstance(statement, ast.If) and line.lstrip().startswith("elif"):
+        return None
+    if number in commented or (number >= 2 and lines[number - 2].lstrip().startswith("#")):
+        return None
+    return number - 1, indent
+
+
+def _numbered(node: ast.stmt, piece_lines: list[str], numbers: dict[int, int], offset: int) -> str:
+    """Show ``node`` with a left column holding the statement numbers.
+
+    ``numbers`` maps an absolute 1-based line number to its statement number.
+    """
+    start, end = _first_line(node), node.end_lineno
+    indent = _indent_of(piece_lines[start - 1])
+    rows = []
+    for number in range(start, end + 1):
+        text = piece_lines[number - 1].rstrip("\r\n")
+        text = text[len(indent) :] if text.startswith(indent) else text
+        label = f"S{numbers[number + offset]}" if (number + offset) in numbers else ""
+        rows.append(f"{label:<5}| {text}")
+    return "\n".join(rows) + "\n"
 
 
 def _code_of(node: ast.stmt, piece_lines: list[str]) -> str:
@@ -178,18 +331,50 @@ def _code_of(node: ast.stmt, piece_lines: list[str]) -> str:
     return textwrap.dedent("".join(piece_lines[start - 1 : end]))
 
 
-def _targets(source: str, lines: list[str]) -> tuple[list[_Target], list[Outcome]]:
-    """List what needs a docstring, and what was left alone and why."""
-    targets: list[_Target] = []
-    skipped: list[Outcome] = []
+def _commented_lines(source: str) -> set[int]:
+    """Return the 1-based numbers of the lines that carry a ``#`` comment."""
+    reader = io.StringIO(source, newline="").readline
+    return {
+        token.start[0]
+        for token in tokenize.generate_tokens(reader)
+        if token.type == tokenize.COMMENT
+    }
+
+
+def _targets(source: str, lines: list[str], want_comments: bool):
+    """List what needs a docstring or comments, and what was left alone and why."""
+    doc_targets: list[_Target] = []
+    comment_targets: list[_CommentTarget] = []
+    doc_skips: list[Outcome] = []
+    comment_skips: list[Outcome] = []
+    commented = _commented_lines(source) if want_comments else set()
 
     def consider(node, name, kind, context, piece_lines, offset):
         slot = _slot(node, lines, offset)
         if isinstance(slot, str):
-            skipped.append(Outcome(name, SKIPPED, slot))
+            doc_skips.append(Outcome(name, SKIPPED, slot))
+        else:
+            index, indent = slot
+            code = _code_of(node, piece_lines)
+            doc_targets.append(_Target(name, kind, code, context, index, indent))
+        if not want_comments or kind == "class":
             return
-        index, indent = slot
-        targets.append(_Target(name, kind, _code_of(node, piece_lines), context, index, indent))
+        eligible = []
+        for position, statement in enumerate(_statements(node.body)):
+            if position == 0 and _is_docstring(statement):
+                continue
+            found = _comment_slot(statement, lines, offset, commented)
+            if found:
+                eligible.append(found)
+        if len(eligible) < MIN_STATEMENTS:
+            comment_skips.append(
+                Outcome(f"{name} comments", SKIPPED, "too few statements to comment")
+            )
+            return
+        slots = dict(enumerate(eligible, start=1))
+        numbers = {index + 1: number for number, (index, _) in slots.items()}
+        code = _numbered(node, piece_lines, numbers, offset)
+        comment_targets.append(_CommentTarget(name, kind, code, context, slots))
 
     for piece in split_source(source):
         if piece.kind not in ("function", "class"):
@@ -218,7 +403,7 @@ def _targets(source: str, lines: list[str]) -> tuple[list[_Target], list[Outcome
                     piece_lines,
                     offset,
                 )
-    return targets, skipped
+    return doc_targets, comment_targets, doc_skips, comment_skips
 
 
 # --- Inserting and checking ------------------------------------------------
@@ -238,11 +423,14 @@ def _ending_of(lines: list[str], index: int) -> str:
 def _insert(lines: list[str], insertions: list[tuple[int, list[str]]]) -> tuple[str, list[int]]:
     """Insert blocks of lines before the given 0-based indexes, in one pass.
 
-    Returns the new text and the 1-based numbers of the inserted lines in it.
+    Blocks given for the same index go in the order given. Returns the new
+    text and the 1-based numbers of the inserted lines in it.
     """
+    pending: dict[int, list[str]] = {}
+    for index, block in insertions:
+        pending.setdefault(index, []).extend(block)
     result: list[str] = []
     numbers: list[int] = []
-    pending = dict(insertions)
     for index, line in enumerate(lines):
         block = pending.get(index)
         if block:
@@ -263,46 +451,106 @@ def _passes_guard(original: str, new: str, inserted: list[int]) -> str | None:
     return None
 
 
-def comment_source(source: str, backend: Backend) -> ClioResult:
-    """Add a docstring to every function, method and class that lacks one.
+def _sits_above(new: str, inserted: list[int], original_line: str) -> bool:
+    """Tell whether the line right after the inserted block is ``original_line``."""
+    new_lines = argus.split_lines(new)
+    return inserted[-1] < len(new_lines) and new_lines[inserted[-1]] == original_line
 
-    Each docstring is generated by ``backend``, inserted by this function and
-    verified by Argus on its own; one that fails is dropped without affecting
-    the others. A final check covers the combined result. A file that cannot
-    be split is returned unchanged with no outcomes.
+
+def comment_source(source: str, backend: Backend, mode: str = "both") -> ClioResult:
+    """Add missing docstrings and inline comments to ``source``.
+
+    ``mode`` is ``"docstrings"``, ``"comments"`` or ``"both"``. Text comes from
+    ``backend``; Momus does the inserting and Argus the verifying. Each
+    insertion is checked on its own, and one that fails is dropped without
+    affecting the others. A final check covers the combined result. A file
+    that cannot be analysed is returned unchanged.
+
+    Raises:
+        ValueError: if ``mode`` is not one of ``MODES``.
     """
+    if mode not in MODES:
+        raise ValueError(f"mode must be one of {MODES}, got {mode!r}")
+    want_docstrings = mode in ("both", "docstrings")
+    want_comments = mode in ("both", "comments")
     try:
         lines = argus.split_lines(source)
-        targets, outcomes = _targets(source, lines)
-    except (SplitError, argus.ArgusError) as exc:
+        doc_targets, comment_targets, doc_skips, comment_skips = _targets(
+            source, lines, want_comments
+        )
+    except Exception as exc:  # parse, split and tokenize errors all mean "leave it"
         return ClioResult(source, (Outcome("<file>", SKIPPED, f"not processed: {exc}"),), ())
 
-    accepted: list[tuple[_Target, list[str]]] = []
-    for target in targets:
+    outcomes: list[Outcome] = []
+    if want_docstrings:
+        outcomes.extend(doc_skips)
+    else:
+        doc_targets = []
+    if want_comments:
+        outcomes.extend(comment_skips)
+
+    accepted: list[tuple[str, int, list[str]]] = []
+
+    def try_insert(name: str, index: int, block: list[str], original_line: str | None) -> None:
+        candidate, inserted = _insert(lines, [(index, block)])
+        failure = _passes_guard(source, candidate, inserted)
+        if failure is None and original_line is not None:
+            if not _sits_above(candidate, inserted, original_line):
+                failure = "the comment is not directly above its statement"
+        if failure:
+            outcomes.append(Outcome(name, REJECTED, failure))
+        else:
+            accepted.append((name, index, block))
+
+    # Docstrings are handled first, so that when a docstring and a comment land
+    # before the same line, the docstring is the one above.
+    for target in doc_targets:
         prompt = build_prompt(target.kind, target.code, target.context)
         try:
             text = parse_reply(backend.complete(prompt))
-            block = format_docstring(text, target.indent, _ending_of(lines, target.index))
         except (BackendError, ClioError) as exc:
             outcomes.append(Outcome(target.name, REJECTED, str(exc)))
             continue
-        candidate, inserted = _insert(lines, [(target.index, block)])
-        failure = _passes_guard(source, candidate, inserted)
-        if failure:
-            outcomes.append(Outcome(target.name, REJECTED, failure))
+        block = format_docstring(text, target.indent, _ending_of(lines, target.index))
+        try_insert(target.name, target.index, block, None)
+
+    for target in comment_targets:
+        prompt = build_comment_prompt(target.kind, target.code, target.context)
+        label = f"{target.name} comments"
+        try:
+            entries = parse_comments(backend.complete(prompt))
+        except (BackendError, ClioError) as exc:
+            outcomes.append(Outcome(label, REJECTED, str(exc)))
             continue
-        accepted.append((target, block))
+        if not entries:
+            outcomes.append(Outcome(label, SKIPPED, "the model proposed no comments"))
+        seen: set[int] = set()
+        for number, text in entries:
+            name = f"{target.name} S{number}"
+            if number in seen:
+                outcomes.append(Outcome(name, REJECTED, "the statement was named twice"))
+                continue
+            seen.add(number)
+            if number not in target.slots:
+                outcomes.append(Outcome(name, REJECTED, "not a numbered statement"))
+                continue
+            if not text:
+                outcomes.append(Outcome(name, REJECTED, "the comment is empty"))
+                continue
+            index, indent = target.slots[number]
+            block = format_comment(text, indent, _ending_of(lines, index))
+            try_insert(name, index, block, lines[index])
 
     if not accepted:
         return ClioResult(source, tuple(outcomes), ())
-    text, inserted = _insert(lines, [(target.index, block) for target, block in accepted])
+    text, inserted = _insert(lines, [(index, block) for _, index, block in accepted])
     failure = _passes_guard(source, text, inserted)
     if failure:
-        # Should not happen, since each piece passed alone. If it does, keep
-        # nothing: the original file is the only text known to be safe.
-        outcomes.extend(Outcome(t.name, REJECTED, f"combined check: {failure}") for t, _ in accepted)
+        # Should not happen, since each insertion passed alone. If it does,
+        # keep nothing: the original file is the only text known to be safe.
+        outcomes.extend(Outcome(n, REJECTED, f"combined check: {failure}") for n, _, _ in accepted)
         return ClioResult(source, tuple(outcomes), ())
-    outcomes.extend(Outcome(t.name, ADDED, "docstring added") for t, _ in accepted)
+    outcomes.extend(Outcome(name, ADDED, "added") for name, _, _ in accepted)
     return ClioResult(text, tuple(outcomes), tuple(inserted))
 
 
