@@ -99,7 +99,7 @@ def _inserted_lines(old_lines: list[str], new_lines: list[str]) -> list[int]:
         if tag == "insert":
             inserted.extend(range(new_start + 1, new_end + 1))
         elif tag != "equal":
-            raise CriticError("the file has changes other than added lines")
+            raise CriticError("not a comments-only change: lines were changed or removed")
     return inserted
 
 

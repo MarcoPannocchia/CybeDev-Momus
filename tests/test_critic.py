@@ -89,6 +89,15 @@ def test_a_change_that_is_not_comments_only_is_refused(new):
         critic.find_comments("m.py", ORIGINAL, new)
 
 
+def test_a_hash_line_added_inside_a_string_is_not_a_comment_and_is_refused():
+    # Only the Argus checks can tell: the added line looks like a comment, but it
+    # sits inside a string literal and changes the string's value.
+    original = 'TEXT = """first\nsecond"""\n'
+    new = 'TEXT = """first\n# not a comment\nsecond"""\n'
+    with pytest.raises(CriticError, match="not a comments-only change"):
+        critic.find_comments("m.py", original, new)
+
+
 # --- Showing the code around them ------------------------------------------
 
 
@@ -391,6 +400,7 @@ def test_anthropic_sends_the_key_from_the_environment_and_returns_the_text(monke
         backend = AnthropicBackend("some-model", "MOMUS_TEST_KEY", max_tokens=64, url=api.url)
         assert backend.complete("question") == "C1: False."
     (headers, payload), = api.seen
+    headers = {name.lower(): value for name, value in headers.items()}  # urllib capitalizes names
     assert headers["x-api-key"] == "sk-test-123" and headers["anthropic-version"]
     assert payload == {
         "model": "some-model",

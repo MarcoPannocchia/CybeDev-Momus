@@ -549,26 +549,48 @@ momus/
 
 ## 10. Phase F — Review with the strong model (`momus review`)
 
-- [ ] `critic.py`: builds a **compact diff of the comments only** (with the
+- [x] `critic.py`: builds a **compact diff of the comments only** (with the
       function body next to the comment for important functions, so a
       well-written false comment cannot fool the reviewer) and sends it to the
-      strong backend
-- [ ] Required output, short: `file:line: problem` per false, redundant or
-      inconsistent comment. No summaries
+      strong backend — built 2026-11-12. It refuses anything that is not a
+      comments-only change (both Argus checks must pass), shows the code of the
+      function or class around each added comment with the added lines marked
+      `+`, and shows only the part near the comments when a definition is over
+      60 lines. Known inefficiency: a class docstring brings the whole class
+      along, so the methods' code can be sent twice in one request
+- [x] Required output, short: `file:line: problem` per false, redundant or
+      inconsistent comment. No summaries — the reviewer answers `C3: problem`
+      per comment number (or `OK`) and Momus turns that into `file:line:
+      problem`, the same numbering trick as Clio's statements
 - [ ] Backends:
-  - [ ] `anthropic.py` — `anthropic` SDK, key from an environment variable,
-        never in code or config files
-  - [ ] `claude_code.py` — non-interactive `claude -p` call
-  - [ ] Backend chosen in `momus.toml`
-- [ ] Work in batches (e.g. every 5–10 touched files), not after every edit
-- [ ] A fake backend for tests so the test suite never calls a real API
+  - [ ] `anthropic.py` — built 2026-11-12 with **plain HTTP instead of the
+        `anthropic` SDK** (no new dependency, same reasoning as the local
+        backend), key read from an environment variable. Tested against a stub
+        server only; **never run against the real API**
+  - [x] `claude_code.py` — non-interactive `claude -p` call, built 2026-11-12:
+        tools off, no saved session, started from an empty folder. Run once for
+        real (see below)
+  - [x] Backend chosen in `momus.toml` — `[review]` table
+- [ ] Work in batches (e.g. every 5–10 touched files), not after every edit —
+      comments are packed into requests of at most `max_items` (default 10).
+      **When** a review is triggered ("every N files") belongs to the daemon
+      (§16.7) and is not built
+- [x] A fake backend for tests so the test suite never calls a real API — the
+      existing `FakeBackend`, plus a fake process runner and a stub HTTP server
 - **Done when:** `momus review` works with at least one real backend and with
-  the fake one in tests
+  the fake one in tests — met 2026-11-12: the fake in the suite, and `claude -p`
+  once for real on a temporary repository with three planted comments (it
+  flagged the false and the redundant one and left the good one). One run, not
+  a measure of how good the reviewer is
 
 ---
 
 ## 11. Phase G — Benchmark (`momus bench`)
 
+> **Deferred 2026-11-12:** the maintainer moved the official model
+> comparison to the end of the project. The engine below is ready; the same
+> goes for the four-model comparison of §9.
+>
 > **Status 2026-11-12:** the engine is built, as `momus bench`
 > (`src/momus/bench.py`). It runs Clio as a dry run with each model over the
 > sample files and writes, per model, a JSON file with everything raw and a
@@ -576,7 +598,8 @@ momus/
 > conditions. It is kept as a reusable module so that the final app can call or
 > read it later (§17). **No official run exists yet.** The only real run was a
 > short script check on one file, on **battery**, and it was discarded. Not
-> covered by the engine: "comments flagged by the reviewer" (needs §10), the
+> covered by the engine: "comments flagged by the reviewer" (§10 now exists, but
+> `momus bench` does not call it yet), the
 > usage ledger, and a judgement of trivial or wrong comments, which is left to
 > a person reading the Markdown diffs.
 
@@ -682,8 +705,10 @@ momus/
       the logic"
 - [x] 4. §8 — cleaning and splitting
 - [ ] 5. §9 — Clio, including the quality comparison and the output-mode decision
-- [ ] 6. §10 — review stage with a fake backend first, then a real one
-- [ ] 7. §11 — benchmark
+- [x] 6. §10 — review stage with a fake backend first, then a real one
+- [ ] 7. §11 — benchmark — the engine is built (`momus bench`); the official
+      run is **deferred by the maintainer to the end of the project**
+      (2026-11-12: the models matter little for now)
 - [ ] 8. §12 — README, logo, publication
 - [ ] 9. §16 (settings app) — after the core CLI works end to end, not before:
       the config schema is easiest to get right once Clio/Argus/Momus have

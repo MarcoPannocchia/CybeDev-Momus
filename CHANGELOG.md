@@ -8,6 +8,14 @@ are in [WORKLOG.md](WORKLOG.md).
 
 ### Added
 
+- `momus review FILE... [--base REF]`: a strong model reads the comments and
+  docstrings added to the files since `REF` (default `HEAD`) and prints
+  `file:line: problem` for each false, redundant or inconsistent one. Changes
+  that touch code are refused. The model sees each comment next to the code
+  around it, in batches
+- Review backends: `claude_code` (runs `claude -p` with tools off; no key) and
+  `anthropic` (Messages API over plain HTTP; key from an environment
+  variable), chosen in the new `[review]` table of `momus.toml`
 - `momus bench`: runs Clio as a dry run with several models over the same
   files and writes, per model, a raw JSON file and a Markdown summary into
   `benchmarks/results/`, both starting with the measurement conditions (power

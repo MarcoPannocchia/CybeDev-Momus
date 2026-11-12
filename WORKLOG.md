@@ -3,6 +3,70 @@
 Tests run, choices made and why, newest first. Maintained by the `work-log`
 skill. User-facing changes are summarized in [CHANGELOG.md](CHANGELOG.md).
 
+## 2026-11-12 — Review stage, `momus review` (plan §10)
+
+**Changed**
+- `src/momus/critic.py` (new): `find_comments()`, `build_groups()`,
+  `build_batches()`, `parse_findings()`, `review_changes()`,
+  `read_git_baseline()`
+- `src/momus/prompts/critic.txt` (new)
+- `src/momus/backends/claude_code.py` and `anthropic.py` (new)
+- `src/momus/config.py`: `[review]` table (`ReviewSettings`, loader, builder);
+  the table reading is shared with `[local]`
+- `src/momus/cli.py`: `momus review`; `momus.toml`: `[review]` section
+- `tests/test_critic.py` (new, 55 tests); `tests/test_smoke.py`
+- `plan-Momus.md` §10, §11, §15; `CHANGELOG.md`
+
+**Tests**
+- Baseline before changes: 204 passed, 1 deselected
+- After: `.venv/bin/pytest` — 258 passed, 1 deselected (integration). Fake
+  backend, fake process runner and a localhost stub server only
+- Mutation check by hand, five deliberate bugs: the first attempt to skip the
+  Argus checks was **not** caught (the earlier checks refused the same cases),
+  so I added a test where only they can help (a `#` line added inside a
+  multi-line string, which looks like a comment but changes the string). After
+  that, all five were caught: Argus checks skipped, code left out of the
+  request, finding at the wrong line, and Claude Code started with tools on
+- Two test failures along the way: a wrong expectation about an error message,
+  and `urllib` capitalizing header names. The first led to making the refusal
+  message consistent
+- Real run, once: a temporary git repository, a file with a false docstring
+  ("median" on a mean), a redundant comment and a good comment, reviewed with
+  `momus review` and `claude -p`. It printed `stats.py:2: The docstring says
+  median, but the function returns the mean.` and `stats.py:3: Redundant; ...`,
+  left the good comment alone, took about 10 s, and the file was not touched
+- Not run: the `anthropic` backend against the real API (no call was made);
+  the reviewer on real Clio output; token counts of the real call (not
+  measured); Python versions other than 3.12.3
+
+**Decisions**
+- First real backend: Claude Code — assistant's choice, open to change: no key
+  and no dependency, and the plan left it open (§13)
+- Anthropic over plain HTTP, not the SDK — assistant's choice that departs from
+  the plan's wording; consistent with the local backend and adds no dependency
+- Review compares the working file with git (`--base`, default `HEAD`) instead
+  of tracking what Momus wrote, because the ownership record (§16.7) does not
+  exist yet. Consequence: any comment added since the baseline is reviewed,
+  whoever wrote it, and an untracked or new file cannot be reviewed
+- A change that edits or removes a line, or touches code, is refused as a
+  whole file (fail closed). Trailing `# comments` on an existing line count as
+  an edited line, so they are refused too
+- The reviewer answers with comment numbers, not line numbers, and Momus maps
+  them back — a small model-independent safeguard against wrong line numbers
+- `claude -p` runs with all tools off, no saved session, from an empty folder
+  so this project's instructions are not loaded each time. User-level
+  instructions and hooks may still load; not checked
+- Exit status: 0 when every file was reviewed (findings or not), 1 when a file
+  or request could not be — assistant's choice; findings alone do not fail
+- The benchmark and the four-model comparison are deferred to the end, by the
+  maintainer; `momus bench` does not call the reviewer yet
+
+**Open / next**
+- The next plan step by the order of §15 is §12 (README, logo, publication),
+  but §9 still has the output-quality work and §16 (settings app, daemon) is
+  large; the maintainer chooses
+- Uncommitted: all of the above
+
 ## 2026-11-12 — Benchmark engine, `momus bench` (plan §11)
 
 **Changed**
