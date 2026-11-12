@@ -40,6 +40,13 @@ MODES = ("both", "docstrings", "comments")
 # comments: there is little to explain, and small models over-comment.
 MIN_STATEMENTS = 3
 
+# The most comments accepted for one function. The prompt asks for this too,
+# but small models do not always count, so the code enforces it.
+MAX_COMMENTS = 3
+
+# Width of a docstring line, counting the indentation.
+DOCSTRING_WIDTH = 79
+
 _DOC_MARKER = re.compile(r"\A\s*DOCSTRING:[ \t]*", re.IGNORECASE)
 _COMMENTS_MARKER = re.compile(r"\A\s*COMMENTS:[ \t]*", re.IGNORECASE)
 # "S3: text" (a dash, dot or parenthesis after the number is tolerated too).
@@ -48,6 +55,10 @@ _ENTRY = re.compile(r"^\s*S(\d+)\s*[:.)-]\s*(.*\S)\s*$")
 # a fence. The answer ends there.
 _ECHO = re.compile(r"^(?:[ \t]*```|Code:)", re.MULTILINE)
 _ENDING = re.compile(r"\r\n|\r|\n")
+# A heading such as "Args:" on a line of its own (Google style).
+_SECTION = re.compile(r"^(Args|Arguments|Parameters|Params|Returns?|Raises|Yields?|Examples?|Notes?):\s*$")
+# A list entry such as "name: what it is" or "name (type): what it is".
+_ENTRY_LINE = re.compile(r"\s*[\w*]+( \([^)]*\))?:\s")
 _FUNCTIONS = (ast.FunctionDef, ast.AsyncFunctionDef)
 _DEFINITIONS = (*_FUNCTIONS, ast.ClassDef)
 
@@ -64,7 +75,7 @@ class Outcome:
     status: str  # ADDED, SKIPPED (left alone on purpose) or REJECTED (a check failed)
     reason: str
     kind: str = ""  # "docstring" or "comment"; empty for a whole-file outcome
-    cause: str = ""  # for REJECTED: "backend", "reply", "anchor" or "guard"
+    cause: str = ""  # for REJECTED: "backend", "reply", "anchor", "limit" or "guard"
 
 
 @dataclass(frozen=True)
@@ -173,7 +184,7 @@ def parse_reply(reply: str) -> str:
     if '"""' in text:
         raise ClioError("the docstring contains a triple double quote")
     # A backslash would be read as an escape; doubling keeps the intended text.
-    return text.replace("\\", "\\\\")
+    return _tidy_sections(text).replace("\\", "\\\\")
 
 
 def parse_comments(reply: str) -> list[tuple[int, str]]:
@@ -204,9 +215,60 @@ def parse_comments(reply: str) -> list[tuple[int, str]]:
     return entries
 
 
+def _tidy_sections(text: str) -> str:
+    """Put a blank line before each heading and indent what follows it.
+
+    Small models often write ``Args:`` and then list the arguments with no
+    indentation, which reads as a flat paragraph. Only whitespace changes.
+    """
+    out: list[str] = []
+    in_section = False
+    for line in text.split("\n"):
+        if _SECTION.match(line):
+            if out and out[-1] != "":
+                out.append("")
+            out.append(line.strip())
+            in_section = True
+        elif in_section and not line.strip():
+            out.append("")
+            in_section = False
+        elif in_section:
+            out.append(line if line[:1] in (" ", "\t") else "    " + line)
+        else:
+            out.append(line)
+    return "\n".join(out)
+
+
+def _wrap(line: str, width: int) -> list[str]:
+    """Wrap one line to ``width``, keeping its indentation.
+
+    The continuation of a list entry is indented four more, so the entry's
+    name stays visible.
+    """
+    if len(line) <= width:
+        return [line]
+    lead = len(line) - len(line.lstrip())
+    extra = 4 if _ENTRY_LINE.match(line) else 0
+    return textwrap.wrap(
+        line,
+        width=width,
+        subsequent_indent=" " * (lead + extra),
+        break_long_words=False,
+        break_on_hyphens=False,
+    ) or [line]
+
+
 def format_docstring(text: str, indent: str, newline: str) -> list[str]:
-    """Lay out ``text`` as the lines of a triple-quoted docstring."""
-    lines = [line.rstrip() for line in text.split("\n")]
+    """Lay out ``text`` as the lines of a triple-quoted docstring.
+
+    Lines are wrapped so that none passes ``DOCSTRING_WIDTH`` columns, which
+    only changes where the text breaks.
+    """
+    width = DOCSTRING_WIDTH - len(indent)
+    lines: list[str] = []
+    for position, raw in enumerate(text.split("\n")):
+        # The first line also carries the opening quotes.
+        lines.extend(_wrap(raw.rstrip(), width - 3 if position == 0 else width))
     # The closing quotes go on their own line when the text ends in a quote
     # mark, because ``"..."`"""`` would end the string in the wrong place.
     if len(lines) == 1 and not lines[0].endswith('"'):
@@ -536,8 +598,14 @@ def comment_source(source: str, backend: Backend, mode: str = "both") -> ClioRes
         if not entries:
             outcomes.append(Outcome(label, SKIPPED, "the model proposed no comments", "comment"))
         seen: set[int] = set()
+        taken = 0
         for number, text in entries:
             name = f"{target.name} S{number}"
+            if taken >= MAX_COMMENTS:
+                outcomes.append(
+                    Outcome(name, REJECTED, f"more than {MAX_COMMENTS} comments", "comment", "limit")
+                )
+                continue
             if number in seen:
                 outcomes.append(
                     Outcome(name, REJECTED, "the statement was named twice", "comment", "anchor")
@@ -556,6 +624,7 @@ def comment_source(source: str, backend: Backend, mode: str = "both") -> ClioRes
                 continue
             index, indent = target.slots[number]
             block = format_comment(text, indent, _ending_of(lines, index))
+            taken += 1
             try_insert(name, "comment", index, block, lines[index])
 
     if not accepted:

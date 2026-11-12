@@ -555,3 +555,57 @@ def test_rejected_outcomes_carry_a_kind_and_a_cause(monkeypatch):
 
     added = clio.comment_source("def a():\n    pass\n", FakeBackend([reply("Doc.")]), "docstrings")
     assert (added.outcomes[0].status, added.outcomes[0].kind) == (ADDED, "docstring")
+
+
+# --- Tidier docstrings and a firm limit on comments --------------------------
+
+
+def test_section_entries_are_indented_and_headings_get_a_blank_line_before():
+    text = parse_reply("DOCSTRING:\nDo it.\nArgs:\nfunc: What to call.\nn: How often.\nReturns:\nThe value.")
+    assert text == "Do it.\n\nArgs:\n    func: What to call.\n    n: How often.\n\nReturns:\n    The value."
+
+
+def test_text_that_is_already_tidy_or_has_no_sections_is_left_alone():
+    tidy = "Do it.\n\nArgs:\n    func: What to call.\n\nReturns:\n    The value."
+    assert parse_reply(f"DOCSTRING:\n{tidy}") == tidy
+    plain = "Do it.\n\nIt has a note: take care.\nReturns: the value."  # not on a line of its own
+    assert parse_reply(f"DOCSTRING:\n{plain}") == plain
+
+
+def test_long_docstring_lines_are_wrapped_and_the_text_survives():
+    words = "Retries a call with exponential backoff and gives up after a few attempts " * 3
+    block = clio.format_docstring(words.strip(), "    ", "\n")
+    assert len(block) > 3 and all(len(line.rstrip()) <= clio.DOCSTRING_WIDTH for line in block)
+    assert block[0].startswith('    """') and block[-1] == '    """\n'
+    inserted = f"def f():\n{''.join(block)}    return 1\n"
+    assert " ".join(ast.get_docstring(ast.parse(inserted).body[0]).split()) == " ".join(words.split())
+
+
+def test_wrapped_entries_keep_a_deeper_indent_for_the_continuation():
+    text = parse_reply(
+        "DOCSTRING:\nArgs:\nfunc: The function to retry, which is called with no arguments and may raise any "
+        "exception at all, including ones nobody expected."
+    )
+    block = clio.format_docstring(text, "    ", "\n")
+    assert block[1].startswith("        func: ") and block[2].startswith("            ")
+    assert all(len(line.rstrip()) <= clio.DOCSTRING_WIDTH for line in block)
+
+
+def test_a_single_line_that_needs_wrapping_becomes_a_multiline_docstring():
+    block = clio.format_docstring("word " * 30, "", "\n")
+    assert block[0].startswith('"""word') and block[-1] == '"""\n' and len(block) > 2
+
+
+def test_no_more_than_three_comments_are_taken_for_one_function():
+    reply = comment_reply("S1: One.", "S2: Two.", "S3: Three.", "S4: Four.", "S5: Five.")
+    result = comments(RETRY, FakeBackend([reply]))
+    by_name = {o.name: o for o in result.outcomes}
+    assert [by_name[f"retry S{n}"].status for n in range(1, 6)] == [ADDED] * 3 + [REJECTED] * 2
+    assert by_name["retry S4"].cause == "limit"
+    assert result.text.count("# Four.") == 0 and result.text.count("# Three.") == 1
+
+
+def test_comments_that_were_refused_do_not_use_up_the_limit():
+    reply = comment_reply("S9: Nowhere.", "S1: One.", "S2: Two.", "S3: Three.")
+    result = comments(RETRY, FakeBackend([reply]))
+    assert sum(o.status == ADDED for o in result.outcomes) == 3
