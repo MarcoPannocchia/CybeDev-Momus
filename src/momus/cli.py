@@ -1,9 +1,9 @@
 """Command-line entry point for Momus.
 
-``comment`` (docstrings and inline comments) and ``bench`` (compare models) are
-implemented. The other subcommands are placeholders that report they are not
-implemented and exit with a non-zero status, so nothing can be mistaken for
-working behaviour.
+``comment`` (docstrings and inline comments), ``review`` (check the added
+comments with a strong model) and ``bench`` (compare models) are implemented.
+``guard`` is still a placeholder that reports it is not implemented and exits
+with a non-zero status, so nothing can be mistaken for working behaviour.
 """
 
 import argparse
@@ -14,8 +14,14 @@ from pathlib import Path
 
 from momus import bench
 from momus.backends import Backend, BackendError
+from momus.critic import CriticError, read_git_baseline, review_changes
 from momus.clio import MODES, ClioError, comment_source, read_text_exact, write_text_atomic
-from momus.config import build_local_backend, load_local_settings
+from momus.config import (
+    build_local_backend,
+    build_review_backend,
+    load_local_settings,
+    load_review_settings,
+)
 
 # Subcommand name -> one-line help. The stages behind them are built in later
 # plan phases (Clio, Argus, the critic, the benchmark).
@@ -49,6 +55,14 @@ def build_parser() -> argparse.ArgumentParser:
                 choices=MODES,
                 default="both",
                 help="what to add: docstrings, inline comments, or both (default)",
+            )
+            sub.add_argument("--config", type=Path, default="momus.toml", help="config file")
+        if name == "review":
+            sub.add_argument("files", nargs="+", type=Path, help="files whose new comments to review")
+            sub.add_argument(
+                "--base",
+                default="HEAD",
+                help="git reference holding the files as they were before Momus (default: HEAD)",
             )
             sub.add_argument("--config", type=Path, default="momus.toml", help="config file")
         if name == "bench":
@@ -114,6 +128,39 @@ def comment_command(
     return status
 
 
+def review_command(
+    files: list[Path],
+    backend: Backend,
+    base: str = "HEAD",
+    max_items: int = 10,
+    read_baseline=read_git_baseline,
+    out=None,
+) -> int:
+    """Review the comments added to ``files`` since ``base``.
+
+    Prints one ``file:line: problem`` per bad comment and nothing else on
+    standard output. Returns 0 if every file was reviewed (whether or not
+    problems were found) and 1 if some file or request could not be.
+    """
+    out = out or sys.stdout
+    status = 0
+    changes = []
+    for path in files:
+        try:
+            changes.append((str(path), read_baseline(path, base), read_text_exact(path)))
+        except (OSError, ClioError, CriticError) as exc:
+            print(f"{path}: cannot review: {exc}", file=sys.stderr)
+            status = 1
+    result = review_changes(changes, backend, max_items)
+    for finding in result.findings:
+        print(finding, file=out)
+    for error in result.errors:
+        print(f"momus review: {error}", file=sys.stderr)
+    if not result.reviewed and not result.errors and status == 0:
+        print("momus review: no added comments to review", file=sys.stderr)
+    return 1 if result.errors else status
+
+
 def main(argv: list[str] | None = None) -> int:
     """Run the CLI and return the process exit status.
 
@@ -136,6 +183,14 @@ def main(argv: list[str] | None = None) -> int:
             print(f"momus comment: {exc}", file=sys.stderr)
             return 1
         return comment_command(args.files, backend, args.write, args.mode)
+    if args.command == "review":
+        try:
+            settings = load_review_settings(args.config)
+            backend = build_review_backend(settings)
+        except BackendError as exc:
+            print(f"momus review: {exc}", file=sys.stderr)
+            return 1
+        return review_command(args.files, backend, args.base, settings.max_items)
     if args.command == "bench":
         return bench.main(args)
     print(f"momus {args.command}: not implemented yet", file=sys.stderr)

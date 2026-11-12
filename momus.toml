@@ -22,3 +22,26 @@ timeout = 600.0
 # The context window is NOT set here: the /v1 endpoint cannot set it per
 # request. For Ollama, set the OLLAMA_CONTEXT_LENGTH environment variable
 # (for example 8192) before starting the server, or use a Modelfile.
+
+[review]
+# The strong model that reads the comments Clio added. Either "claude_code"
+# (runs `claude -p`: no key, uses the login of the `claude` command) or
+# "anthropic" (the Messages API: needs the environment variable named below).
+backend = "claude_code"
+
+# Model name. Leave empty to use the backend's own default (Claude Code only);
+# the anthropic backend requires one.
+model = ""
+
+# Only for the anthropic backend: the NAME of the environment variable that
+# holds the key. The key itself never goes in this file.
+api_key_env = "ANTHROPIC_API_KEY"
+
+# Longest reply to ask for, in tokens (anthropic backend).
+max_tokens = 1024
+
+# Seconds to wait for a reply.
+timeout = 300.0
+
+# Comments sent in one request. Fewer requests cost fewer tokens.
+max_items = 10
