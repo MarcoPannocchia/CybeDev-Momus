@@ -27,6 +27,7 @@ from pathlib import Path
 from momus import argus
 from momus.backends import Backend, BackendError
 from momus.cleaning import clean_output, strip_reasoning
+from momus.quality import comment_problem, is_placeholder, polish_docstring
 from momus.splitter import split_source
 
 ADDED = "added"
@@ -55,8 +56,6 @@ _ENTRY = re.compile(r"^\s*S(\d+)\s*[:.)-]\s*(.*\S)\s*$")
 # a fence. The answer ends there.
 _ECHO = re.compile(r"^(?:[ \t]*```|Code:)", re.MULTILINE)
 _ENDING = re.compile(r"\r\n|\r|\n")
-# A heading such as "Args:" on a line of its own (Google style).
-_SECTION = re.compile(r"^(Args|Arguments|Parameters|Params|Returns?|Raises|Yields?|Examples?|Notes?):\s*$")
 # A list entry such as "name: what it is" or "name (type): what it is".
 _ENTRY_LINE = re.compile(r"\s*[\w*]+( \([^)]*\))?:\s")
 _FUNCTIONS = (ast.FunctionDef, ast.AsyncFunctionDef)
@@ -75,7 +74,7 @@ class Outcome:
     status: str  # ADDED, SKIPPED (left alone on purpose) or REJECTED (a check failed)
     reason: str
     kind: str = ""  # "docstring" or "comment"; empty for a whole-file outcome
-    cause: str = ""  # for REJECTED: "backend", "reply", "anchor", "limit" or "guard"
+    cause: str = ""  # for REJECTED: "backend", "reply", "anchor", "style", "limit" or "guard"
 
 
 @dataclass(frozen=True)
@@ -111,7 +110,7 @@ class _CommentTarget:
     kind: str  # "function" or "method"
     code: str  # source shown to the model, with statement numbers in a left column
     context: str
-    slots: dict  # statement number -> (0-based line index, indent)
+    slots: dict  # statement number -> (0-based line index, indent, the statement's text)
 
 
 # --- Prompts and replies ---------------------------------------------------
@@ -181,10 +180,12 @@ def parse_reply(reply: str) -> str:
             break
     if not text:
         raise ClioError("the docstring is empty")
+    if is_placeholder(text):
+        raise ClioError("the reply repeats the template instead of answering it")
     if '"""' in text:
         raise ClioError("the docstring contains a triple double quote")
     # A backslash would be read as an escape; doubling keeps the intended text.
-    return _tidy_sections(text).replace("\\", "\\\\")
+    return polish_docstring(text).replace("\\", "\\\\")
 
 
 def parse_comments(reply: str) -> list[tuple[int, str]]:
@@ -213,30 +214,6 @@ def parse_comments(reply: str) -> list[tuple[int, str]]:
     if unmatched and not entries:
         raise ClioError("no line in the S<number>: <text> format")
     return entries
-
-
-def _tidy_sections(text: str) -> str:
-    """Put a blank line before each heading and indent what follows it.
-
-    Small models often write ``Args:`` and then list the arguments with no
-    indentation, which reads as a flat paragraph. Only whitespace changes.
-    """
-    out: list[str] = []
-    in_section = False
-    for line in text.split("\n"):
-        if _SECTION.match(line):
-            if out and out[-1] != "":
-                out.append("")
-            out.append(line.strip())
-            in_section = True
-        elif in_section and not line.strip():
-            out.append("")
-            in_section = False
-        elif in_section:
-            out.append(line if line[:1] in (" ", "\t") else "    " + line)
-        else:
-            out.append(line)
-    return "\n".join(out)
 
 
 def _wrap(line: str, width: int) -> list[str]:
@@ -429,14 +406,16 @@ def _targets(source: str, lines: list[str], want_comments: bool):
                 continue
             found = _comment_slot(statement, lines, offset, commented)
             if found:
-                eligible.append(found)
+                first = _first_line(statement)
+                last = min(statement.end_lineno, first + 5)  # a compound statement: its start
+                eligible.append((*found, "".join(piece_lines[first - 1 : last])))
         if len(eligible) < MIN_STATEMENTS:
             comment_skips.append(
                 Outcome(f"{name} comments", SKIPPED, "too few statements to comment", "comment")
             )
             return
         slots = dict(enumerate(eligible, start=1))
-        numbers = {index + 1: number for number, (index, _) in slots.items()}
+        numbers = {index + 1: number for number, (index, _, _) in slots.items()}
         code = _numbered(node, piece_lines, numbers, offset)
         comment_targets.append(_CommentTarget(name, kind, code, context, slots))
 
@@ -622,7 +601,11 @@ def comment_source(source: str, backend: Backend, mode: str = "both") -> ClioRes
                     Outcome(name, REJECTED, "the comment is empty", "comment", "reply")
                 )
                 continue
-            index, indent = target.slots[number]
+            index, indent, statement = target.slots[number]
+            problem = comment_problem(text, statement)
+            if problem:
+                outcomes.append(Outcome(name, REJECTED, problem, "comment", "style"))
+                continue
             block = format_comment(text, indent, _ending_of(lines, index))
             taken += 1
             try_insert(name, "comment", index, block, lines[index])

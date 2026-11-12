@@ -1,0 +1,190 @@
+"""Cheap, deterministic quality rules for what a model wrote.
+
+Small models produce a lot of text that is correct but useless: a comment that
+says "This checks if the list is empty" above exactly that check, a
+``Returns: None`` section, a placeholder like "the comment text is missing".
+Argus cannot see any of it, because it only proves the code is unchanged, and
+asking the strong model to flag it costs tokens. These rules catch the
+obvious cases for free.
+
+They are heuristics. They can throw away a comment that was fine, and that is
+the safe direction: Momus would rather add fewer comments than add noise.
+Nothing here reads or changes code; it only judges and cleans text.
+"""
+
+import re
+
+# --- Docstrings ------------------------------------------------------------
+
+# Heading spellings models use, and the one they are folded into.
+_HEADINGS = {
+    "args": "Args",
+    "arguments": "Args",
+    "parameters": "Args",
+    "params": "Args",
+    "return": "Returns",
+    "returns": "Returns",
+    "return value": "Returns",
+    "return values": "Returns",
+    "raises": "Raises",
+    "exceptions": "Raises",
+    "yield": "Yields",
+    "yields": "Yields",
+}
+# Sections whose lines are list entries and get the entry clean-up.
+_ENTRY_SECTIONS = {"Args", "Returns", "Raises", "Yields"}
+# Other headings that only get a blank line before and an indent after.
+_OTHER_HEADINGS = {"example": "Example", "examples": "Examples", "note": "Note", "notes": "Notes"}
+
+_HEADING_LINE = re.compile(r"^([A-Za-z ]+):\s*(.*)$")
+_BULLET = re.compile(r"^(\s*)[-*•]\s+")
+_BACKTICKED_NAME = re.compile(r"^(\s*)`([^`]+)`")
+# Entries that say nothing: "None", "No exceptions are raised", "self: ...".
+_VACUOUS = re.compile(
+    r"^(none|n/?a|nothing|no exceptions?( (are|is|will be))?( raised| thrown)?|"
+    r"does not (raise|return)( anything| any exceptions?)?)\.?$",
+    re.IGNORECASE,
+)
+_SELF_ENTRY = re.compile(r"^(self|cls)\b[^:]*:", re.IGNORECASE)
+_SENTENCE_END = re.compile(r"(?<=[.!?])\s+(?=[A-Z`])")
+# The reply repeats the instructions instead of answering them.
+_TEMPLATE = re.compile(r"^<[^>]*>$|\b(the (docstring|comment) text|comment text is missing)\b", re.IGNORECASE)
+# A docstring too long for one line gets its first sentence as a summary line.
+SUMMARY_LIMIT = 72
+
+
+def is_placeholder(text: str) -> bool:
+    """Tell whether ``text`` is the template echoed back, not an answer."""
+    return bool(_TEMPLATE.search(text.strip()))
+
+
+def _is_vacuous(line: str) -> bool:
+    stripped = line.strip()
+    return bool(_VACUOUS.match(stripped) or _SELF_ENTRY.match(stripped))
+
+
+def polish_docstring(text: str) -> str:
+    """Clean a docstring's text without changing what it says.
+
+    Section headings on a line of their own get one spelling (``Args``,
+    ``Returns``, ``Raises``) and a blank line before them; their entries lose
+    bullets and backticks around the name and are indented. Entries that say
+    nothing (``None``, "no exceptions", the ``self`` argument) are dropped, and
+    a section left empty goes with them. A long single paragraph is split after
+    its first sentence so there is a summary line. A heading with its text on
+    the same line (``Returns: the value.``) is left alone, unless that text
+    says nothing.
+    """
+    out: list[str] = []
+    section: str | None = None  # the heading we are inside, if any
+    kind = ""  # "entries" (Args, Returns, ...) or "other" (Example, Note)
+    body: list[str] = []
+
+    def close() -> None:
+        nonlocal section, kind, body
+        if section is not None:
+            kept = [line for line in body if not (kind == "entries" and _is_vacuous(line))]
+            if any(line.strip() for line in kept):
+                if out and out[-1] != "":
+                    out.append("")
+                out.append(f"{section}:")
+                out.extend(kept)
+        section, kind, body = None, "", []
+
+    for line in text.split("\n"):
+        heading = None if line[:1].isspace() else _HEADING_LINE.match(line)
+        name = heading.group(1).strip().lower() if heading else ""
+        rest = heading.group(2).strip() if heading else ""
+        if heading and name in _HEADINGS:
+            close()
+            if not rest:
+                section, kind = _HEADINGS[name], "entries"
+            elif not _is_vacuous(rest):
+                out.append(line)
+        elif heading and name in _OTHER_HEADINGS and not rest:
+            close()
+            section, kind = _OTHER_HEADINGS[name], "other"
+        elif section is not None and not line.strip():
+            close()
+            out.append("")
+        elif section is not None:
+            entry = line
+            if kind == "entries":
+                entry = _BACKTICKED_NAME.sub(r"\1\2", _BULLET.sub(r"\1", entry))
+            body.append(entry if entry[:1] in (" ", "\t") else "    " + entry)
+        else:
+            out.append(line)
+    close()
+    return _add_summary_line(re.sub(r"\n{3,}", "\n\n", "\n".join(out)).strip("\n"))
+
+
+def _add_summary_line(text: str) -> str:
+    """Split ``text`` after its first sentence if that paragraph is long and single."""
+    first, separator, rest = text.partition("\n\n")
+    if "\n" in first or len(first) <= SUMMARY_LIMIT:
+        return text
+    sentences = _SENTENCE_END.split(first, maxsplit=1)
+    if len(sentences) < 2:
+        return text
+    summary, remainder = sentences
+    return f"{summary}\n\n{remainder}" + (separator + rest if separator else "")
+
+
+# --- Inline comments -------------------------------------------------------
+
+# "This function ..." and "The `retry` function ...": a description, not a reason.
+_DESCRIPTIVE_OPENER = re.compile(
+    r"^(this|the|these)\s+(`[^`]+`\s+|\w+\s+)?(function|method|class|code|statement|line|lines|snippet)\b",
+    re.IGNORECASE,
+)
+_WORD = re.compile(r"[a-z][a-z0-9]{2,}")
+_STOPWORDS = frozenset(
+    "the and for with that this from when are was will then into each all any can not its has have "
+    "been being which while also else only than over under both same must should would could "
+    "you your our out but one two use used using where what here there".split()
+)
+# What a keyword means in words, so that "loop over the values" counts as
+# restating a ``for`` line.
+_KEYWORD_WORDS = {
+    "for": "loop loops iterate iterates each every",
+    "while": "loop loops repeat repeats",
+    "if": "check checks whether verify verifies",
+    "return": "return returns returned",
+    "raise": "raise raises throw throws error",
+    "try": "try tries attempt attempts",
+    "except": "catch catches handle handles",
+    "assert": "assert asserts ensure ensures",
+    "with": "open opens context",
+    "import": "import imports",
+}
+RESTATE_RATIO = 0.6
+MIN_WORDS = 3
+
+
+def _words(text: str) -> set[str]:
+    """Content words of ``text``, with identifiers also split into their parts."""
+    spaced = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", text).replace("_", " ")
+    found = set(_WORD.findall(text.lower())) | set(_WORD.findall(spaced.lower()))
+    return found - _STOPWORDS
+
+
+def comment_problem(text: str, statement: str) -> str | None:
+    """Return why a comment above ``statement`` should be dropped, or None.
+
+    Dropped: placeholders; comments that open by describing "this function" or
+    "this line"; and comments whose words are mostly found in the statement
+    itself, which only say again what the code says.
+    """
+    if is_placeholder(text):
+        return "the comment is a placeholder"
+    if _DESCRIPTIVE_OPENER.match(text.strip()):
+        return "the comment describes the code instead of explaining it"
+    words = _words(text) - {w for w in _STOPWORDS}
+    if len(words) < MIN_WORDS:
+        return None
+    vocabulary = _words(statement)
+    for keyword in re.findall(r"[A-Za-z_]+", statement):
+        vocabulary |= set(_KEYWORD_WORDS.get(keyword, "").split())
+    if len(words & vocabulary) / len(words) >= RESTATE_RATIO:
+        return "the comment only repeats the statement it is above"
+    return None
