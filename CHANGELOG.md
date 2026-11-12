@@ -8,6 +8,10 @@ are in [WORKLOG.md](WORKLOG.md).
 
 ### Added
 
+- Argus, the AST guard (`momus.argus`): `compare_code()` accepts a new text
+  only if its code is identical to the original apart from comments and
+  docstrings, and rejects anything it cannot analyse. Not wired into the CLI
+  yet
 - Backend layer: common `Backend` interface, `LocalBackend` (any OpenAI-format
   local server, such as Ollama, over plain HTTP) and `FakeBackend` for tests
 - `momus.toml` example config and a loader (`momus.config`); the context size

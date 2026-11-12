@@ -353,27 +353,31 @@ momus/
 
 ## 7. Phase C — Argus (AST guard), built before Clio
 
-- [ ] `argus.py`: a function taking original code and new code and returning
-      whether the **code** is identical
-- [ ] Method: parse both with Python's `ast`, remove docstrings (module, class,
+- [x] `argus.py`: a function taking original code and new code and returning
+      whether the **code** is identical — `compare_code()` returns a
+      `Verdict(accepted, reason)` and never raises (done 2026-11-12, 59 tests
+      green in the whole suite)
+- [x] Method: parse both with Python's `ast`, remove docstrings (module, class,
       function, async function), compare `ast.dump` without attributes. `#`
       comments are not in the AST, so they are already ignored
-- [ ] Edge cases to handle explicitly:
-  - [ ] A function whose body is only a docstring becomes empty after removal —
+- [x] Edge cases to handle explicitly:
+  - [x] A function whose body is only a docstring becomes empty after removal —
         normalize to `pass` on both sides
-  - [ ] Ordinary string literals that are **not** docstrings must **not** be
+  - [x] Ordinary string literals that are **not** docstrings must **not** be
         ignored
-  - [ ] Unparseable new code → discard (fail closed)
-  - [ ] Never ignore f-strings or other string-like expressions
-- [ ] Tests in `tests/test_argus.py`:
-  - [ ] same code + docstring added → accepted
-  - [ ] renamed variable → discarded
-  - [ ] line of code added or removed → discarded
-  - [ ] string literal changed → discarded
-  - [ ] invalid output → discarded
-  - [ ] same code + `#` comment added (inline comments are in scope since
+  - [x] Unparseable new code → discard (fail closed). Also discarded: an
+        unparseable original, non-text input, a null byte, and code nested
+        too deeply for the parser or for `ast.dump`
+  - [x] Never ignore f-strings or other string-like expressions
+- [x] Tests in `tests/test_argus.py`:
+  - [x] same code + docstring added → accepted
+  - [x] renamed variable → discarded
+  - [x] line of code added or removed → discarded
+  - [x] string literal changed → discarded
+  - [x] invalid output → discarded
+  - [x] same code + `#` comment added (inline comments are in scope since
         2026-11-11, §9) → accepted
-  - [ ] the tuple `(1,)` changed to `(1)` → discarded (checked 2026-11-11:
+  - [x] the tuple `(1,)` changed to `(1)` → discarded (checked 2026-11-11:
         `ast.dump` tells them apart)
 - [ ] **Added 2026-11-11 — what Argus does not see, and the second check.**
       Checked by running `ast.dump` on small examples (2026-11-11): spacing
@@ -393,7 +397,9 @@ momus/
       text and the numbers of the inserted lines. It can be built and tested
       now without the insertion step of §9, which does not exist yet; it is
       wired in during §9
-- [ ] Design note for later phases: the fingerprints and position checks of
+- [ ] Design note for later phases (first half done 2026-11-12: the shared
+      normalization is `normalized_tree()` / `code_fingerprint()` in
+      `argus.py`): the fingerprints and position checks of
       §9 reuse the same parsing and normalization as Argus. Keep that
       normalization in one place that both can call. Whether the §9 checks
       live in `argus.py` or in a separate module is **not decided**

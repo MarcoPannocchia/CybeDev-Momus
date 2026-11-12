@@ -3,6 +3,48 @@
 Tests run, choices made and why, newest first. Maintained by the `work-log`
 skill. User-facing changes are summarized in [CHANGELOG.md](CHANGELOG.md).
 
+## 2026-11-12 — Argus, part 1: core comparison (plan §7)
+
+**Changed**
+- `src/momus/argus.py`: `compare_code()`, `code_fingerprint()`,
+  `normalized_tree()`, `Verdict`, `ArgusError`
+- `tests/test_argus.py`: 36 tests, one or more per edge case of §7
+- `plan-Momus.md` §7: items up to the `(1,)` test checked; the second check,
+  the build order and the ownership note stay open
+
+**Tests**
+- Baseline before changes: `.venv/bin/pytest` — 23 passed, 1 deselected
+- After: `.venv/bin/pytest` — 59 passed, 1 deselected (integration)
+- Checked by hand which path the "too deep" cases take on CPython 3.12.3:
+  depth 100 000 fails in the parser (`MemoryError`), depth 5 000 parses but
+  fails in `ast.dump` (`RecursionError`); both are rejected
+- Not run: any Python version other than 3.12.3 (the project allows 3.11+);
+  Argus on real model output; `momus guard` is still a placeholder
+
+**Decisions**
+- A docstring-only body equals a `pass`-only body, for functions, async
+  functions and classes — as the plan says. Consequence: replacing `pass` with
+  a docstring passes this comparison; the byte-level check of part 2 is what
+  catches it
+- A module is not given a `pass`: an empty module is legal, so a module with
+  only a docstring equals an empty one but not one containing `pass` —
+  assistant's choice, the stricter reading
+- An unparseable **original** is rejected too — assistant's choice: nothing
+  can be proven about the new text
+- The parser's exceptions are caught broadly (`except Exception`) and turned
+  into `ArgusError` — assistant's choice: for a guard every failure means "not
+  provably safe"
+- `compare_code()` returns a `Verdict` with a reason instead of a bare bool —
+  assistant's choice, so rejected pieces can be listed with their cause (§9).
+  `Verdict` has no truth value on purpose: callers must read `.accepted`
+- Docstring rule copied from Python itself: first statement, plain string
+  constant. F-strings, bytes and string expressions stay code
+
+**Open / next**
+- Part 2 of §7: the byte-for-byte check on inserted lines, after the
+  maintainer's OK
+- Uncommitted: all of the above
+
 ## 2026-11-10 — Local backend (plan §6)
 
 **Changed**
