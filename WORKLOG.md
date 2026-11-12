@@ -3,6 +3,83 @@
 Tests run, choices made and why, newest first. Maintained by the `work-log`
 skill. User-facing changes are summarized in [CHANGELOG.md](CHANGELOG.md).
 
+## 2026-11-12 — Clio, slice 1: docstrings only (plan §9)
+
+**Changed**
+- `src/momus/clio.py` (new): `comment_source()`, `parse_reply()`,
+  `format_docstring()`, `build_prompt()`, `read_text_exact()`,
+  `write_text_atomic()`, `Outcome`, `ClioResult`
+- `src/momus/prompts/clio.txt` (new) and `pyproject.toml` (`package-data` so the
+  prompt ships with the package)
+- `src/momus/cli.py`: `momus comment FILE... [--write] [--model] [--config]`
+- `src/momus/cleaning.py`: `strip_reasoning()` split out of `clean_output()`
+  (no behaviour change)
+- `tests/test_clio.py` (31 tests); `tests/test_smoke.py`: `comment` is no
+  longer in the list of placeholder commands
+- `plan-Momus.md` §9, `CHANGELOG.md`
+
+**Tests**
+- Baseline before changes: 134 passed, 1 deselected
+- After: `.venv/bin/pytest` — 164 passed, 1 deselected (integration). The fake
+  backend only; no test calls a model
+- Mutation check by hand (code broken on purpose, then restored): guard always
+  passing, replacing existing docstrings, and inserting after decorators were
+  each caught by a test
+- Real runs, dry-run, `examples/retry.py`, `.venv/bin/momus comment`: both
+  `qwen2.5-coder:1.5b` and `qwen2.5-coder:7b` produced a diff with exactly one
+  inserted docstring; the file was byte-identical afterwards (`cmp`).
+  Conditions not recorded, no timings taken: **not benchmark data**
+- Not run: `--write` with a real model; the other five sample files; any
+  Python other than 3.12.3; the 16B and 30B models
+
+**Bug found by the real run, fixed**
+- First run: the 1.5B was rejected ("reply does not start with DOCSTRING:").
+  Its raw reply did start with the marker, then repeated the code in a fence.
+  `clean_output()` keeps the first fenced block, so it kept the echoed code
+  and lost the docstring. Safe (nothing written) but it threw away a usable
+  answer. `parse_reply()` now reads the marker first and ends the text at a
+  "Code:" label or a fence. Two tests cover it
+
+**Quality of what the models wrote (observation, one function each)**
+- 1.5B: one very long line that restates the code, as in "The `retry` function
+  is a utility that..."
+- 7B: a better summary, but a first line over 100 characters, "Args:" entries
+  without indentation, and "Raises: last_error", which names the variable, not
+  an exception type
+- The prompt is the first version and has not been tuned. Judging quality is
+  the job of the four-model comparison, not of this entry
+
+**Decisions**
+- Order agreed with the maintainer: docstrings first, inline comments (slice 2)
+  after, then the comparison
+- Targets: top-level functions and classes, and the methods directly inside a
+  class. Nested functions and module docstrings are not covered yet
+- The docstring goes right before the first statement of the body, after any
+  comment lines already there, and above a decorator if the first statement is
+  a decorated method
+- A target whose body shares the `def` line is skipped, and so is any target
+  that already has a docstring, which also means the model is not called for it
+  (ownership, §16.7). Slice 1 has no record of what Momus wrote, so it cannot
+  rewrite its own docstrings either
+- Each insertion is checked alone, and the combined result is checked again.
+  If the combined check ever failed, nothing is kept
+- A reply containing a triple double quote is rejected; backslashes are
+  doubled. Quotes around the text are removed
+- `--write` goes through a temporary file in the same folder and `os.replace`,
+  keeps the permissions, and reads and writes with `newline=""` so line endings
+  are preserved. A file that is not valid UTF-8 is reported and left alone
+- `--model` overrides the model in `momus.toml` for one run, so the comparison
+  needs no config edits — assistant's choice
+
+**Open / next**
+- Slice 2: inline `#` comments with statement numbers; the plan marks that
+  reply format as untested
+- The four-model comparison on the five sample files, then the output-quality
+  questions above
+- A cap on reply length (`max_tokens`) is available in `momus.toml` but not
+  set; on this CPU a rambling reply costs time
+- Uncommitted: everything from the sample files onwards
+
 ## 2026-11-12 — Sample files for the quality comparison (plan §9)
 
 **Changed**

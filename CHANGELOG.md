@@ -8,6 +8,14 @@ are in [WORKLOG.md](WORKLOG.md).
 
 ### Added
 
+- Clio, docstring slice (`momus.clio`): adds a missing docstring to every
+  function, method and class, with the text from the local model and the
+  insertion done by Momus. Existing docstrings are never replaced. Every
+  insertion must pass both Argus checks or it is dropped
+- `momus comment FILE... [--write] [--model NAME] [--config PATH]`: shows a diff
+  by default and writes only with `--write`, through an atomic replace
+- Editable prompt file `src/momus/prompts/clio.txt`
+- `momus.cleaning.strip_reasoning()`: the `<think>` removal step on its own
 - `examples/retry.py` and five neutral sample files in `benchmarks/samples/`,
   the inputs of the model quality comparison (§9) and later the benchmark
 - Output cleaner (`momus.cleaning.clean_output()`): removes `<think>` blocks

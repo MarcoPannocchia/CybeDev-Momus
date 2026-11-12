@@ -441,11 +441,17 @@ momus/
 - [ ] Reads the given files or the modified ones (`git diff --name-only`),
       splits them, sends each piece to the local model, cleans the output,
       passes it to Argus
-- [ ] Prompt in English, kept in a **separate, easily editable file**. Intent:
+- [ ] (Docstring slice built 2026-11-12: `src/momus/prompts/clio.txt`; the
+      prompt for inline comments does not exist yet.) Prompt in English, kept
+      in a **separate, easily editable file**. Intent:
       "Add concise docstrings and comments explaining WHY, not what. Do not change
       any code. Output only the code."
-- [ ] Safe behavior: **dry-run by default** (show diff, write nothing);
+- [x] Safe behavior: **dry-run by default** (show diff, write nothing);
       `--write` applies. Pieces rejected by Argus stay untouched and are listed
+      — built 2026-11-12 for the **docstring slice** (`momus comment FILE`).
+      Dry-run checked on `examples/retry.py` with two real models (file
+      unchanged afterwards); `--write` checked only with the fake backend on
+      temporary files, **never yet on a real model run**
 - [ ] Before writing, explain to the maintainer how the write path avoids
       damaging files
 - [ ] **Quality task (first thing to do in this phase):** on 5 neutral files,
@@ -518,7 +524,10 @@ momus/
 - [ ] An existing docstring or comment that Momus does not own is never
       replaced (§16.7, ownership): where one exists, Clio skips that piece
 - **Done when:** on `examples/retry.py` it yields a diff containing only the
-  docstring, with both models
+  docstring, with both models — docstring half met 2026-11-12 in dry-run with
+  `qwen2.5-coder:1.5b` and `qwen2.5-coder:7b` (the diff is one inserted
+  docstring, nothing else). Quality is weak, see `WORKLOG.md`; inline comments
+  (slice 2) and the four-model comparison are still to do
 
 ---
 
