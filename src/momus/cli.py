@@ -1,8 +1,9 @@
 """Command-line entry point for Momus.
 
 ``comment`` (docstrings and inline comments) and ``bench`` (compare models) are
-implemented. The other subcommands are placeholders that report they are not implemented and exit with a
-non-zero status, so nothing can be mistaken for working behaviour.
+implemented. The other subcommands are placeholders that report they are not
+implemented and exit with a non-zero status, so nothing can be mistaken for
+working behaviour.
 """
 
 import argparse

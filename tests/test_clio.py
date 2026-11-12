@@ -530,3 +530,28 @@ def test_command_mode_option_is_parsed_and_used(tmp_path):
     backend = FakeBackend([comment_reply("S1: Why.")])
     assert comment_command([path], backend, False, mode="comments", out=out) == 0
     assert "+    # Why." in out.getvalue() and len(backend.prompts) == 1
+
+
+# --- Outcomes say what they are and why they failed (used by the benchmark) --
+
+
+def test_rejected_outcomes_carry_a_kind_and_a_cause(monkeypatch):
+    class Down:
+        def complete(self, prompt):
+            raise BackendError("down")
+
+    backend_failure = docs("def a():\n    pass\n", Down()).outcomes[0]
+    assert (backend_failure.kind, backend_failure.cause) == ("docstring", "backend")
+
+    bad_reply = docs("def a():\n    pass\n", FakeBackend(["junk"])).outcomes[0]
+    assert (bad_reply.kind, bad_reply.cause) == ("docstring", "reply")
+
+    unknown = comments(RETRY, FakeBackend([comment_reply("S9: Nowhere.")])).outcomes[0]
+    assert (unknown.kind, unknown.cause) == ("comment", "anchor")
+
+    monkeypatch.setattr(clio, "_sits_above", lambda *args: False)
+    guard = comments(RETRY, FakeBackend([comment_reply("S1: Why.")])).outcomes[0]
+    assert (guard.kind, guard.cause) == ("comment", "guard")
+
+    added = clio.comment_source("def a():\n    pass\n", FakeBackend([reply("Doc.")]), "docstrings")
+    assert (added.outcomes[0].status, added.outcomes[0].kind) == (ADDED, "docstring")

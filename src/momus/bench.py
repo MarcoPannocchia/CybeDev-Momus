@@ -376,7 +376,9 @@ def write_run(run: ModelRun, out_dir: Path) -> tuple[Path, Path]:
         "files": [vars(f) for f in run.files],
         "requests": [vars(r) for r in run.requests],
     }
-    json_path, md_path = stem.with_suffix(".json"), stem.with_suffix(".md")
+    # Appended as text: model names contain dots, and `with_suffix` would take
+    # ".5-coder-7b" for an extension and replace it.
+    json_path, md_path = Path(f"{stem}.json"), Path(f"{stem}.md")
     json_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     md_path.write_text(render_markdown(run, summary or {}), encoding="utf-8")
     return json_path, md_path

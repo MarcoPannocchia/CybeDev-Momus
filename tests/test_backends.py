@@ -179,3 +179,24 @@ def test_real_ollama_answers():
         pytest.skip(f"Ollama is not running or {model} is not installed")
     backend = build_local_backend(load_local_settings("momus.toml"))
     assert backend.complete("Reply with the single word: ready").strip()
+
+
+def test_local_backend_keeps_the_token_counts_the_server_reports():
+    body = json.dumps(
+        {
+            "choices": [{"message": {"content": "hi"}}],
+            "usage": {"prompt_tokens": 7, "completion_tokens": 3},
+        }
+    ).encode()
+    with StubServer(body=body) as server:
+        backend = LocalBackend(server.base_url, "m")
+        assert backend.last_usage is None
+        backend.complete("p")
+    assert backend.last_usage == {"prompt_tokens": 7, "completion_tokens": 3}
+
+
+def test_local_backend_without_usage_in_the_reply_reports_none():
+    with StubServer(body=ok_reply("hi")) as server:
+        backend = LocalBackend(server.base_url, "m")
+        backend.complete("p")
+    assert backend.last_usage is None
