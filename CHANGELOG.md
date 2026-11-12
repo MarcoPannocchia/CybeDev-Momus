@@ -8,6 +8,13 @@ are in [WORKLOG.md](WORKLOG.md).
 
 ### Added
 
+- Clio, inline comments: the model is shown a function with numbered
+  statements (S1, S2, ...) and answers `S3: comment text`; Momus inserts the
+  comment above that statement. Statements that already have a comment, `elif`
+  branches and lines holding several statements are never offered. Each comment
+  passes both Argus checks or is dropped
+- `momus comment --mode {both,docstrings,comments}` (default `both`)
+- Editable prompt file `src/momus/prompts/clio_comments.txt`
 - Clio, docstring slice (`momus.clio`): adds a missing docstring to every
   function, method and class, with the text from the local model and the
   insertion done by Momus. Existing docstrings are never replaced. Every

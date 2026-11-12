@@ -441,8 +441,9 @@ momus/
 - [ ] Reads the given files or the modified ones (`git diff --name-only`),
       splits them, sends each piece to the local model, cleans the output,
       passes it to Argus
-- [ ] (Docstring slice built 2026-11-12: `src/momus/prompts/clio.txt`; the
-      prompt for inline comments does not exist yet.) Prompt in English, kept
+- [ ] (Docstring prompt `src/momus/prompts/clio.txt` and inline-comment
+      prompt `clio_comments.txt` built 2026-11-12, both first versions, untuned.)
+      Prompt in English, kept
       in a **separate, easily editable file**. Intent:
       "Add concise docstrings and comments explaining WHY, not what. Do not change
       any code. Output only the code."
@@ -451,7 +452,10 @@ momus/
       — built 2026-11-12 for the **docstring slice** (`momus comment FILE`).
       Dry-run checked on `examples/retry.py` with two real models (file
       unchanged afterwards); `--write` checked only with the fake backend on
-      temporary files, **never yet on a real model run**
+      temporary files. Then run once with a real model (`qwen2.5-coder:1.5b`,
+      2026-11-12) on a temporary copy of `report_lines.py`: the written file
+      passed both Argus checks, kept its permissions, left no temp file and kept
+      the hand-written text. **Only that one run**
 - [ ] Before writing, explain to the maintainer how the write path avoids
       damaging files
 - [ ] **Quality task (first thing to do in this phase):** on 5 neutral files,
@@ -476,10 +480,20 @@ momus/
       returns pairs of (statement to anchor on, comment text) and Momus
       inserts them. Option (a), docstrings only in v1, was not chosen. What
       is still open is how well this works: it depends on the anchors below
-      and on whether the local models follow the format, **not yet tested**.
-      The quality comparison measures it, and (b) is reconsidered only if it
-      shows a problem
+      and on whether the local models follow the format. **First real test
+      2026-11-12** (`momus comment --mode comments`, five sample files not yet
+      all run): `qwen2.5-coder:1.5b` followed the `S3: text` format and named
+      valid statements, but wrote comments that say *what* the code does, put
+      some on the wrong statement, and gave 4 comments where the prompt allows
+      3; `qwen2.5-coder:7b` answered `NONE` for every function tried. One run
+      each, so these are first impressions, not results. The quality comparison
+      measures it, and (b) is reconsidered only if it shows a problem
 - [ ] Statement anchors by hash (idea from the maintainer, 2026-11-11) —
+      **partly built 2026-11-12**: the statement numbering (S1, S2, …) and the
+      insertion above the named statement exist in `clio.py`, tested with the
+      fake backend and run once on real models. The **fingerprints**, the
+      occurrence numbers and the finding of Momus's own comments again later
+      are **not built** (they belong with the ownership record of §16.7) —
       the mechanism for (b); accepted 2026-11-12, with the open details below:
       - Momus numbers the statements of a piece itself (S1, S2, …) and shows
         the model the code with those numbers; the model answers "S3: comment
@@ -526,8 +540,10 @@ momus/
 - **Done when:** on `examples/retry.py` it yields a diff containing only the
   docstring, with both models — docstring half met 2026-11-12 in dry-run with
   `qwen2.5-coder:1.5b` and `qwen2.5-coder:7b` (the diff is one inserted
-  docstring, nothing else). Quality is weak, see `WORKLOG.md`; inline comments
-  (slice 2) and the four-model comparison are still to do
+  docstring, nothing else). Inline comments built 2026-11-12 (slice 2) but on
+  `retry.py` both models proposed none, so that half of this line is **not met
+  as written**. Quality is weak, see `WORKLOG.md`; the four-model comparison
+  is still to do
 
 ---
 

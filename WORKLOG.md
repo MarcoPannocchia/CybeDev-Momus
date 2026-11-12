@@ -3,6 +3,76 @@
 Tests run, choices made and why, newest first. Maintained by the `work-log`
 skill. User-facing changes are summarized in [CHANGELOG.md](CHANGELOG.md).
 
+## 2026-11-12 — Clio, slice 2: inline comments (plan §9)
+
+**Changed**
+- `src/momus/clio.py`: `parse_comments()`, `format_comment()`,
+  `build_comment_prompt()`, statement numbering (`_statements`, `_comment_slot`,
+  `_numbered`), comment insertion in `comment_source(..., mode=)`; the reply
+  reading shared with the docstring slice moved into `_after_marker()`
+- `src/momus/prompts/clio_comments.txt` (new)
+- `src/momus/cli.py`: `--mode {both,docstrings,comments}`
+- `tests/test_clio.py`: 24 more tests (55 in the file); the slice-1 tests now
+  ask for `mode="docstrings"` explicitly
+- `plan-Momus.md` §9, `CHANGELOG.md`
+
+**Tests**
+- Baseline before changes: 164 passed, 1 deselected
+- After: `.venv/bin/pytest` — 188 passed, 1 deselected (integration). Fake
+  backend only
+- Mutation check by hand, four deliberate bugs (comment one line too low,
+  existing comments ignored, unknown statement numbers accepted, docstring and
+  comment in the wrong order at the same line): each was caught
+- Two of my first test runs failed because of mistakes in the tests (a column
+  offset, and a status dict that merged two outcomes); the code was right
+- Real runs, dry-run: `retry.py` with `qwen2.5-coder:1.5b` and `7b`, both
+  `COMMENTS: NONE`. `stats.py`: the 1.5B added 11 comments across 5 functions
+  (4 in one function, the prompt says at most 3), the 7B proposed none
+- Real `--write` on a temporary copy of `report_lines.py` with the 1.5B, mode
+  `both`: 24 lines inserted. Checked independently of Clio (`difflib` for the
+  inserted lines, then both Argus checks): no line edited, code identical, mode
+  0640 kept, no temp file left, all four hand-written texts intact
+- Not run: the 16B and 30B models; the remaining samples; Python versions other
+  than 3.12.3. No timings, no recorded conditions: **not benchmark data**
+
+**What the real runs showed (one run each, first impressions)**
+- 1.5B: follows the format and names valid statements every time it was seen,
+  but the comments restate the code ("This checks if the input list is
+  empty"), and some sit on the wrong statement (a comment about the loop above
+  `return None`). Its docstrings are long and describe the code line by line
+- 7B: proposes nothing for the small functions it was given. That obeys
+  "fewer is better", but whether it ever comments is not known yet
+- A docstring is inserted directly above the first statement, so it ends up
+  below a person's comment that already sits there (`worst_severity`). Valid
+  Python, odd to read
+
+**Decisions**
+- Docstrings and comments are separate requests, not one combined reply —
+  assistant's choice: a simpler format is easier for a small model, and each
+  can be switched off with `--mode`
+- Comments only for functions and methods, not classes
+- A function with fewer than 3 numbered statements is not offered
+  (`MIN_STATEMENTS = 3`) — assistant's choice, to be revisited with real files
+- Numbered statements include those in nested blocks, `try` handlers and
+  `match` cases; nested functions and classes count as one statement and are
+  not entered
+- A statement is never offered if it has a comment above it or on its line: a
+  person's comment is not Momus's to join or replace (§16.7, ownership). This
+  is the full rule for now, since there is no record of what Momus wrote
+- Comment lines are wrapped at about 79 columns and inserted as separate `#`
+  lines
+- A reply line not in the `S3: text` format is ignored, unless there is no valid
+  line at all, in which case the reply is rejected
+- The "at most 3 comments" limit lives only in the prompt; the code does not
+  enforce it (the 1.5B went over it)
+- Fingerprints, occurrence numbers and re-finding Momus's comments are not
+  built; the statement numbers are valid only within one run
+
+**Open / next**
+- The four-model comparison on the five sample files, with the prompt as it is
+- Then prompt tuning, using results from all models instead of one function
+- Uncommitted: all of the above
+
 ## 2026-11-12 — Clio, slice 1: docstrings only (plan §9)
 
 **Changed**
