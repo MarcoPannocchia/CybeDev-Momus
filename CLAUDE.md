@@ -21,7 +21,8 @@ module layout, open decisions); this file wins on process conventions
   `pip install -e .` (once `pyproject.toml` exists)
 - Tests: `pytest`
 - CLI: `momus --help`, `momus comment`, `momus guard`, `momus review`,
-  `momus bench`
+  `momus bench`, `momus daemon {start,stop,status}`, `momus restore <file>` (both planned,
+  §16.7)
 - Local runtime check: `ollama list` (models are served by Ollama on
   `http://localhost:11434`; the `/v1` OpenAI-format endpoint is only a local
   transport protocol)
@@ -43,8 +44,10 @@ module layout, open decisions); this file wins on process conventions
 These protect the one guarantee Momus makes: **it never changes code, only
 comments and docstrings.**
 
-- **No stage ever modifies code.** Clio may only add or change comments and
-  docstrings
+- **No stage ever modifies code.** Clio may only add comments and docstrings
+  where they are missing, and rewrite only those that Momus itself wrote
+  (see `plan-Momus.md` §16.7, ownership). It never replaces a comment or
+  docstring written by the maintainer or by another tool
 - **Argus is the guard and it fails closed.** If the new code does not parse,
   is ambiguous, or differs from the original in anything except comments and
   docstrings, the output is discarded and the original is left untouched
@@ -54,8 +57,14 @@ comments and docstrings.**
   the guard
 - **Dry-run is the default** for `momus comment`. Files are written only with
   `--write`
-- Any new feature that writes files must go through the same guard path as
-  Clio
+- **The one exception is the background daemon** (`momus daemon`, started with
+  `/activate_momus`; planned, see `plan-Momus.md` §16.7). Activating it is the
+  maintainer's explicit consent to write, equivalent to `--write`. The
+  exception is narrow: manual `momus comment` runs stay dry-run by default,
+  the daemon's output goes through Argus exactly like any other output, and
+  before every write it saves a backup copy of the original file
+- Any new feature that writes files, the daemon included, must go through the
+  same guard path as Clio
 
 ## Test cycle
 
