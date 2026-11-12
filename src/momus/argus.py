@@ -125,7 +125,7 @@ _LINE = re.compile(r"[^\r\n]*(?:\r\n|\r|\n)|[^\r\n]+")
 _ENDING = re.compile(r"\r\n|\r|\n")
 
 
-def _split_lines(text: str) -> list[str]:
+def split_lines(text: str) -> list[str]:
     """Split ``text`` into lines that, joined back, give ``text`` exactly."""
     return _LINE.findall(text)
 
@@ -163,7 +163,7 @@ def check_inserted_lines(original: str, new: str, inserted_lines: Iterable[int])
     if len(endings) > 1:
         return Verdict(False, "mixed line endings")
 
-    new_lines = _split_lines(new)
+    new_lines = split_lines(new)
     if any(n < 1 or n > len(new_lines) for n in numbers):
         return Verdict(False, "a line number is outside the new text")
     if not numbers and original != new:
