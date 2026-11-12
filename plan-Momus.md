@@ -15,8 +15,9 @@ criterion, and anything not yet verified is marked as such.
 - `[ ]` = to do, or done-but-unverified (say which in the line)
 - Each section is a project area or a decision already made in chat
 - Dates are ISO (`YYYY-MM-DD`). Decisions carry the date they were made
-- Reference state for the latest update of this plan: **pre-v0.1.0, skeleton
-  only (§5 done)**. Last updated **2026-11-11**
+- Reference state for the latest update of this plan: **pre-v0.1.0, §5–§8
+  built (skeleton, local backend, Argus, cleaning, splitter); no Clio yet**.
+  Last updated **2026-11-12**
 - Language rules: this plan, all code, comments, docstrings, commit messages
   and the README are in **English**. Explanations to the maintainer in chat are
   also in English
@@ -415,14 +416,23 @@ momus/
 
 ## 8. Phase D — Output cleaning and file splitting
 
-- [ ] `cleaning.py`: strip markdown fences (```), leading/trailing chatter
+- [x] `cleaning.py`: strip markdown fences (```), leading/trailing chatter
       ("Here is the code…"), `<think>` blocks if a reasoning model is used. Tests
-- [ ] `splitter.py`: split a file into top-level functions and classes using
+      — `clean_output()`, done 2026-11-12. Chatter is removed only when a
+      fence marks where the answer is; a sentence glued to an unfenced answer
+      is left for Argus to reject. Tested on written examples only, **not on
+      real model replies**
+- [x] `splitter.py`: split a file into top-level functions and classes using
       `ast` line numbers (`lineno`/`end_lineno`; include decorators); large
-      classes can be split per method. Each model request stays small
-- [ ] Verify that reassembling the untouched pieces reproduces the original file
-      byte for byte
+      classes can be split per method. Each model request stays small —
+      `split_source()`, done 2026-11-12. Per-method splitting is opt-in
+      (`max_class_lines`); the threshold to use is **not decided** (§9)
+- [x] Verify that reassembling the untouched pieces reproduces the original file
+      byte for byte — tested on 9 sources (CRLF, no final newline, empty file,
+      form feed) in both splitting modes; the splitter also checks it on every
+      call and raises `SplitError` otherwise
 - **Done when:** tests on a file with several functions, including decorators
+  — met 2026-11-12 (134 tests green in the whole suite)
 
 ---
 
@@ -627,8 +637,10 @@ momus/
 - [ ] 1. §5 — skeleton, `.gitignore`, first commit (skeleton and `.gitignore`
       done 2026-11-09; the skeleton commit waits for the maintainer's request)
 - [x] 2. §6 — local backend talking to `qwen2.5-coder:1.5b`
-- [ ] 3. §7 — Argus with tests (before any file is written by a model)
-- [ ] 4. §8 — cleaning and splitting
+- [ ] 3. §7 — Argus with tests (before any file is written by a model) —
+      built and tested 2026-11-12; open only for §7's "maintainer can explain
+      the logic"
+- [x] 4. §8 — cleaning and splitting
 - [ ] 5. §9 — Clio, including the quality comparison and the output-mode decision
 - [ ] 6. §10 — review stage with a fake backend first, then a real one
 - [ ] 7. §11 — benchmark

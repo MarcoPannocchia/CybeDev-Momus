@@ -3,6 +3,50 @@
 Tests run, choices made and why, newest first. Maintained by the `work-log`
 skill. User-facing changes are summarized in [CHANGELOG.md](CHANGELOG.md).
 
+## 2026-11-12 — Output cleaning and file splitting (plan §8)
+
+**Changed**
+- `src/momus/cleaning.py`: `clean_output()`
+- `src/momus/splitter.py`: `split_source()`, `join_pieces()`, `Piece`,
+  `SplitError`
+- `src/momus/argus.py`: `_split_lines` renamed to the public `split_lines`
+  (no behaviour change), so the splitter shares it
+- `tests/test_cleaning.py` (15 tests), `tests/test_splitter.py` (29 tests)
+- `plan-Momus.md`: §8 and §15 item 4 checked; reference state updated
+
+**Tests**
+- Baseline before changes: `.venv/bin/pytest` — 90 passed, 1 deselected
+- After: `.venv/bin/pytest` — 134 passed, 1 deselected (integration)
+- Not run: the cleaner on real model replies (examples were written by hand);
+  the splitter on real project files; Python versions other than 3.12.3
+
+**Decisions**
+- The cleaner keeps the inside of the **first** fenced block and drops the
+  rest — assistant's choice. Without a fence it does not guess where chatter
+  ends: "Here is the code:" glued to an answer stays, and Argus rejects it.
+  Guessing could delete a real line
+- An unclosed `<think>` block leaves an empty answer; an orphan `</think>`
+  drops everything before it — assistant's choice
+- The cleaner is format-agnostic on purpose: the reply format of §9
+  (docstring text, "S3: comment" pairs) is not fixed yet, so stripping the
+  quotes around a docstring is left to §9
+- Pieces cover **every** line (kind `other` for imports, constants, comments,
+  blank lines), so reassembly is a plain join. A comment block right above a
+  function lands in the `other` piece before it — known limit, to revisit in
+  §9 if the model needs that context
+- Per-method splitting is opt-in through `max_class_lines`, default off —
+  assistant's choice: the plan says large classes "can be" split, and the
+  right threshold needs real files. A split class yields `method` pieces and
+  `class-part` pieces (header, attributes, lines between methods); these are
+  indented fragments and do not parse on their own
+- Nested functions and classes are never split off
+- `split_source()` re-joins its own pieces and raises `SplitError` if they
+  do not give the source back — fail closed, same spirit as Argus
+
+**Open / next**
+- §9, Clio. Its first task is the quality comparison on 5 neutral files
+- Uncommitted: all of the above
+
 ## 2026-11-12 — Argus, part 2: byte-level check on inserted lines (plan §7)
 
 **Changed**

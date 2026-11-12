@@ -8,6 +8,12 @@ are in [WORKLOG.md](WORKLOG.md).
 
 ### Added
 
+- Output cleaner (`momus.cleaning.clean_output()`): removes `<think>` blocks
+  and markdown fences, with the chatter around a fence, from a model reply
+- File splitter (`momus.splitter.split_source()`): cuts a Python file into
+  one piece per top-level function or class (decorators included) plus the
+  lines between them; optionally one piece per method for large classes. The
+  pieces rebuild the file exactly
 - Argus second check (`check_inserted_lines()`): removing the lines Momus
   inserted must give the original text exactly, so reformatting, changed
   line endings and a changed final newline are rejected. Not wired into the
@@ -33,5 +39,7 @@ are in [WORKLOG.md](WORKLOG.md).
 
 ### Changed
 
+- `momus.argus.split_lines()` is now public: the splitter uses the same
+  line splitting as the guard
 - Chat explanations to the maintainer are now in English (`CLAUDE.md`,
   `plan-Momus.md`, `snapshot` skill)
