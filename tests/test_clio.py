@@ -386,7 +386,8 @@ def test_numbered_code_marks_only_statements_that_can_take_a_comment():
     backend = FakeBackend(["COMMENTS: NONE"])
     comments(source, backend)
     shown = backend.prompts[0].split("Code:\n", 1)[1].splitlines()
-    labels = {row[5:].strip(): row[:5].strip() for row in shown}
+    # Each row is a 5-character label column, then "| ", then the code.
+    labels = {row[7:].strip(): row[:5].strip() for row in shown}
     assert labels['"""Doc."""'] == ""  # the docstring
     assert labels["if x > 1:"] == "S1"
     assert labels["y = 1  # trailing note"] == ""  # already commented
@@ -425,16 +426,14 @@ def test_several_comments_in_one_function():
 def test_unknown_duplicate_and_empty_entries_are_rejected_and_the_rest_kept():
     reply = comment_reply("S9: Nowhere.", "S2: Fine.", "S2: Again.", "S3: #")
     result = comments(RETRY, FakeBackend([reply]))
-    assert statuses(result) == {
-        "retry S9": REJECTED,
-        "retry S2": REJECTED,  # the duplicate overwrites the key; see reasons below
-        "retry S3": REJECTED,
-    }
-    reasons = {(o.name, o.reason) for o in result.outcomes}
-    assert ("retry S9", "not a numbered statement") in reasons
-    assert ("retry S2", "the statement was named twice") in reasons
-    assert ("retry S3", "the comment is empty") in reasons
-    assert result.text.count("# Fine.") == 1
+    # S2 appears twice: the first mention is added, the second is rejected.
+    assert sorted((o.name, o.status, o.reason) for o in result.outcomes) == [
+        ("retry S2", ADDED, "added"),
+        ("retry S2", REJECTED, "the statement was named twice"),
+        ("retry S3", REJECTED, "the comment is empty"),
+        ("retry S9", REJECTED, "not a numbered statement"),
+    ]
+    assert result.text.count("# Fine.") == 1 and "# Again." not in result.text
 
 
 def test_model_proposing_nothing_leaves_the_file_alone():
