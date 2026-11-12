@@ -452,7 +452,11 @@ momus/
       compare `qwen2.5-coder:1.5b`, `qwen2.5-coder:7b`,
       `deepseek-coder-v2:16b` and `qwen3-coder:30b`. Record per model:
       seconds per file, tok/s, share of pieces rejected by Argus, number of
-      trivial or wrong comments
+      trivial or wrong comments. The 5 files were written 2026-11-12 in
+      `benchmarks/samples/` (`stats`, `inventory`, `async_tools`,
+      `report_lines`, `text_tools`); `report_lines.py` already has docstrings
+      and comments written by hand, to test the ownership rule. The comparison
+      itself has **not been run**
 - [x] Output mode decided 2026-11-11 (§2): **docstring-only**. The model
       returns only the docstring text; Momus finds the right place with `ast`
       line numbers and inserts it itself. Reason on this CPU: generation speed

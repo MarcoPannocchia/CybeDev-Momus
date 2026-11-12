@@ -3,6 +3,42 @@
 Tests run, choices made and why, newest first. Maintained by the `work-log`
 skill. User-facing changes are summarized in [CHANGELOG.md](CHANGELOG.md).
 
+## 2026-11-12 — Sample files for the quality comparison (plan §9)
+
+**Changed**
+- `examples/retry.py`: the 9-line function of the plan's "done when"
+- `benchmarks/samples/`: `stats.py`, `inventory.py`, `async_tools.py`,
+  `report_lines.py`, `text_tools.py` (41-47 lines each, 2-6 functions or
+  classes each, written for the purpose, no private code)
+- `plan-Momus.md` §9: note on where the files are; the comparison stays open
+
+**Tests**
+- Each file parses, splits with `split_source()` and passes `compare_code()`
+  against itself; the largest function or class is 12 lines, except
+  `Inventory` (40 lines, one class)
+- A one-off script (not added to the suite, since the samples are data, not
+  project code) ran their behaviour: `retry` with a flaky function, `median`,
+  `normalize`, `moving_average`, `Inventory` add/remove, `gather_limited`,
+  `fibonacci(30)`, `Report.summary`, `top_words`, `truncate`, `wrap`. All
+  passed
+- Whole suite: `.venv/bin/pytest` — 134 passed, 1 deselected
+- Not run: any model on these files
+
+**Decisions**
+- Location `benchmarks/samples/` — assistant's choice, open to change: the plan
+  does not say, and §11 reuses the same files
+- Coverage: plain functions (`stats`, `text_tools`), a class with a property
+  and a static method (`inventory`), decorators and async code
+  (`async_tools`), and hand-written docstrings and comments that Momus must
+  not replace (`report_lines`; ownership rule, §16.7)
+- Only the samples have no docstrings except `report_lines`, so every model
+  has work to do on four of five files
+
+**Open / next**
+- Design of the Clio prompt and the docstring-only reply format, for the
+  maintainer's OK before any model runs
+- Uncommitted: all of the above
+
 ## 2026-11-12 — Output cleaning and file splitting (plan §8)
 
 **Changed**

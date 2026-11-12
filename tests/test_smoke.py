@@ -24,7 +24,7 @@ def test_help_flag_exits_cleanly(capsys):
         assert name in out
 
 
-@pytest.mark.parametrize("command", sorted(COMMANDS))
+@pytest.mark.parametrize("command", sorted(set(COMMANDS) - {"comment"}))
 def test_placeholder_commands_report_not_implemented(command, capsys):
     assert main([command]) == 1
     assert "not implemented yet" in capsys.readouterr().err

@@ -25,6 +25,24 @@ _FENCE = re.compile(
 )
 
 
+def strip_reasoning(text: str) -> str:
+    """Remove ``<think>`` blocks, and anything before an orphan ``</think>``.
+
+    Raises:
+        TypeError: if ``text`` is not a string.
+    """
+    if not isinstance(text, str):
+        raise TypeError(f"model output must be text, got {type(text).__name__}")
+    text = _THINK_BLOCK.sub("", text)
+    stray_close = None
+    for stray_close in _THINK_CLOSE.finditer(text):
+        pass
+    if stray_close is not None:
+        # Everything up to the last orphan closing tag was reasoning.
+        text = text[stray_close.end() :]
+    return text
+
+
 def clean_output(text: str) -> str:
     """Return the useful part of a model reply, without its wrapping.
 
@@ -37,16 +55,7 @@ def clean_output(text: str) -> str:
     Raises:
         TypeError: if ``text`` is not a string.
     """
-    if not isinstance(text, str):
-        raise TypeError(f"model output must be text, got {type(text).__name__}")
-
-    text = _THINK_BLOCK.sub("", text)
-    stray_close = None
-    for stray_close in _THINK_CLOSE.finditer(text):
-        pass
-    if stray_close is not None:
-        # Everything up to the last orphan closing tag was reasoning.
-        text = text[stray_close.end() :]
+    text = strip_reasoning(text)
 
     fenced = _FENCE.search(text)
     if fenced is not None:

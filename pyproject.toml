@@ -21,6 +21,9 @@ momus = "momus.cli:main"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+momus = ["prompts/*.txt"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 # Tests that call a real local model server are skipped unless asked for:

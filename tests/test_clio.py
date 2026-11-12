@@ -1,0 +1,294 @@
+"""Tests for Clio, docstring-only slice (plan §9). Only the fake backend is used."""
+
+import ast
+import io
+import textwrap
+
+import pytest
+
+from momus import argus, clio
+from momus.backends import BackendError
+from momus.backends.fake import FakeBackend
+from momus.cli import comment_command
+from momus.clio import ADDED, REJECTED, SKIPPED, ClioError, comment_source, parse_reply
+
+SOURCE = textwrap.dedent(
+    """
+    def add(a, b):
+        return a + b
+
+
+    class Box:
+        step = 1
+
+        @property
+        def size(self):
+            return self.step
+
+        def grow(self):
+            self.step += 1
+    """
+).lstrip("\n")
+
+
+def reply(text: str) -> str:
+    return f"DOCSTRING:\n{text}"
+
+
+def statuses(result) -> dict[str, str]:
+    return {outcome.name: outcome.status for outcome in result.outcomes}
+
+
+def docstrings(text: str) -> dict[str, str | None]:
+    tree = ast.parse(text)
+    found = {}
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            found[node.name] = ast.get_docstring(node)
+    return found
+
+
+# --- Reply parsing and layout ----------------------------------------------
+
+
+def test_parse_reply_takes_the_text_after_the_marker():
+    assert parse_reply("DOCSTRING:\nAdd two numbers.") == "Add two numbers."
+    assert parse_reply("docstring: Add two numbers.") == "Add two numbers."
+
+
+def test_parse_reply_strips_fences_chatter_and_quotes():
+    assert parse_reply('Sure!\n```\nDOCSTRING:\n"""Add two numbers."""\n```\nDone.') == (
+        "Add two numbers."
+    )
+
+
+def test_parse_reply_drops_code_the_model_repeated_after_its_answer():
+    # Observed with qwen2.5-coder:1.5b on examples/retry.py (2026-11-12).
+    echoed = "DOCSTRING:\nRetry a call.\n\nCode:\n```python\ndef f():\n    pass\n```"
+    assert parse_reply(echoed) == "Retry a call."
+    assert parse_reply("DOCSTRING:\nRetry a call.\n```python\ndef f(): pass\n```") == "Retry a call."
+
+
+def test_parse_reply_ignores_reasoning_blocks():
+    assert parse_reply("<think>\nhmm\n</think>\nDOCSTRING:\nDo it.") == "Do it."
+
+
+def test_parse_reply_doubles_backslashes():
+    assert parse_reply("DOCSTRING:\nSplit on \\n.") == "Split on \\\\n."
+
+
+@pytest.mark.parametrize(
+    "bad",
+    ["Add two numbers.", "", "DOCSTRING:", 'DOCSTRING:\nSay """hi""" now.', "Here:\nDOCSTRING:\nx"],
+)
+def test_parse_reply_rejects_unusable_replies(bad):
+    with pytest.raises(ClioError):
+        parse_reply(bad)
+
+
+def test_format_docstring_layouts():
+    assert clio.format_docstring("One line.", "    ", "\n") == ['    """One line."""\n']
+    assert clio.format_docstring("First.\n\nSecond.", "    ", "\n") == [
+        '    """First.\n',
+        "\n",
+        "    Second.\n",
+        '    """\n',
+    ]
+    # Text ending in a quote mark must not run into the closing quotes.
+    assert clio.format_docstring('Say "hi"', "", "\n") == ['"""Say "hi"\n', '"""\n']
+
+
+def test_prompt_contains_the_code_and_leaves_braces_alone():
+    prompt = clio.build_prompt("function", "d = {1: 2}\n", "Some context.\n\n")
+    assert "d = {1: 2}" in prompt and "Some context." in prompt and "{{" not in prompt
+
+
+# --- Inserting docstrings --------------------------------------------------
+
+
+def test_docstrings_are_added_to_functions_classes_and_methods():
+    backend = FakeBackend([reply("Sum.")])
+    result = comment_source(SOURCE, backend)
+    assert statuses(result) == {
+        "add": ADDED,
+        "Box": ADDED,
+        "Box.size": ADDED,
+        "Box.grow": ADDED,
+    }
+    assert docstrings(result.text) == {"add": "Sum.", "Box": "Sum.", "size": "Sum.", "grow": "Sum."}
+    assert len(backend.prompts) == 4
+
+
+def test_result_passes_both_argus_checks_and_keeps_code_identical():
+    result = comment_source(SOURCE, FakeBackend([reply("Doc.")]))
+    assert result.changed
+    assert argus.compare_code(SOURCE, result.text).accepted
+    assert argus.check_inserted_lines(SOURCE, result.text, result.inserted_lines).accepted
+
+
+def test_docstring_of_a_decorated_first_method_goes_above_the_decorator():
+    result = comment_source(SOURCE, FakeBackend([reply("Doc.")]))
+    lines = result.text.splitlines()
+    box = lines.index("class Box:")
+    assert lines[box + 1].strip() == '"""Doc."""'
+    assert lines[box + 2] == "    step = 1"  # unchanged: the class has an attribute first
+    size = lines.index("    def size(self):")
+    assert lines[size - 1] == "    @property"
+    assert lines[size + 1].strip() == '"""Doc."""'
+
+
+def test_docstring_goes_before_a_decorator_when_it_is_the_first_statement():
+    source = "class Box:\n    @property\n    def size(self):\n        return 1\n"
+    result = comment_source(source, FakeBackend([reply("Doc.")]))
+    assert result.text.splitlines()[:3] == ["class Box:", '    """Doc."""', "    @property"]
+    assert argus.compare_code(source, result.text).accepted
+
+
+def test_multiline_signature_and_indentation_are_handled():
+    source = "def long(\n    a,\n    b,\n):\n    return a\n"
+    result = comment_source(source, FakeBackend([reply("Return a.\n\nIgnore b.")]))
+    assert docstrings(result.text)["long"] == "Return a.\n\nIgnore b."
+    assert argus.check_inserted_lines(source, result.text, result.inserted_lines).accepted
+
+
+# --- Ownership and safe skips ----------------------------------------------
+
+
+def test_existing_docstring_is_never_replaced_and_the_model_is_not_asked():
+    source = 'def add(a, b):\n    """Written by a person."""\n    return a + b\n'
+    backend = FakeBackend([reply("Machine text.")])
+    result = comment_source(source, backend)
+    assert result.text == source and not result.changed
+    assert statuses(result) == {"add": SKIPPED}
+    assert backend.prompts == []
+
+
+def test_body_on_the_def_line_is_left_alone():
+    source = "def one(): return 1\n\ndef two():\n    return 2\n"
+    result = comment_source(source, FakeBackend([reply("Doc.")]))
+    assert statuses(result) == {"one": SKIPPED, "two": ADDED}
+    assert "def one(): return 1" in result.text
+
+
+def test_unparseable_file_is_returned_unchanged():
+    backend = FakeBackend([reply("Doc.")])
+    result = comment_source("def broken(:\n", backend)
+    assert result.text == "def broken(:\n" and not result.changed
+    assert backend.prompts == []
+
+
+# --- Failures are contained ------------------------------------------------
+
+
+def test_bad_reply_for_one_target_does_not_stop_the_others():
+    backend = FakeBackend(["no marker here", reply("Doc.")])
+    result = comment_source("def a():\n    pass\n\ndef b():\n    pass\n", backend)
+    assert statuses(result) == {"a": REJECTED, "b": ADDED}
+    assert docstrings(result.text) == {"a": None, "b": "Doc."}
+
+
+def test_backend_failure_is_reported_not_raised():
+    class Down:
+        def complete(self, prompt):
+            raise BackendError("server is down")
+
+    result = comment_source(SOURCE, Down())
+    assert result.text == SOURCE
+    assert {o.status for o in result.outcomes} == {REJECTED}
+    assert "server is down" in result.outcomes[0].reason
+
+
+def test_insertion_that_fails_the_guard_is_dropped(monkeypatch):
+    real = argus.check_inserted_lines
+    monkeypatch.setattr(
+        clio.argus,
+        "check_inserted_lines",
+        lambda original, new, inserted: real(original, new, [n + 1 for n in inserted]),
+    )
+    result = comment_source("def a():\n    pass\n", FakeBackend([reply("Doc.")]))
+    assert result.text == "def a():\n    pass\n" and not result.changed
+    assert statuses(result) == {"a": REJECTED}
+
+
+# --- Byte-level care -------------------------------------------------------
+
+
+def test_crlf_file_keeps_its_line_endings():
+    source = SOURCE.replace("\n", "\r\n")
+    result = comment_source(source, FakeBackend([reply("Doc.")]))
+    assert result.changed
+    assert "\n" not in result.text.replace("\r\n", "")
+    assert argus.check_inserted_lines(source, result.text, result.inserted_lines).accepted
+
+
+def test_file_without_final_newline_stays_without_it():
+    source = "def a():\n    return 1"
+    result = comment_source(source, FakeBackend([reply("Doc.")]))
+    assert result.text == 'def a():\n    """Doc."""\n    return 1'
+
+
+def test_non_ascii_text_survives():
+    source = 'def a():\n    return "caffè"\n'
+    result = comment_source(source, FakeBackend([reply("Restituisce il caffè.")]))
+    assert 'return "caffè"' in result.text and "Restituisce il caffè." in result.text
+
+
+# --- Files and the command -------------------------------------------------
+
+
+def run(path, write, backend=None):
+    out = io.StringIO()
+    status = comment_command([path], backend or FakeBackend([reply("Doc.")]), write, out=out)
+    return status, out.getvalue()
+
+
+def test_dry_run_shows_a_diff_and_writes_nothing(tmp_path):
+    path = tmp_path / "mod.py"
+    path.write_bytes(SOURCE.encode())
+    status, output = run(path, write=False)
+    assert status == 0
+    assert path.read_bytes() == SOURCE.encode()
+    assert '+    """Doc."""' in output and "dry run, nothing written" in output
+
+
+def test_write_replaces_the_file_with_the_checked_text(tmp_path):
+    path = tmp_path / "mod.py"
+    path.write_bytes(SOURCE.encode())
+    path.chmod(0o640)
+    status, output = run(path, write=True)
+    assert status == 0 and "written" in output
+    assert docstrings(path.read_text())["add"] == "Doc."
+    assert path.stat().st_mode & 0o777 == 0o640
+    assert [p.name for p in tmp_path.iterdir()] == ["mod.py"]  # no temp file left behind
+
+
+def test_write_with_nothing_to_add_leaves_the_file_alone(tmp_path):
+    path = tmp_path / "mod.py"
+    source = 'def a():\n    """Mine."""\n'
+    path.write_bytes(source.encode())
+    before = path.stat().st_mtime_ns
+    assert run(path, write=True)[0] == 0
+    assert path.read_bytes() == source.encode() and path.stat().st_mtime_ns == before
+
+
+def test_unreadable_and_non_utf8_files_are_reported(tmp_path, capsys):
+    bad = tmp_path / "latin.py"
+    bad.write_bytes(b"x = '\xe9'\n")
+    status = comment_command([bad, tmp_path / "missing.py"], FakeBackend(), write=True)
+    assert status == 1
+    assert bad.read_bytes() == b"x = '\xe9'\n"
+    assert capsys.readouterr().err.count("cannot read") == 2
+
+
+def test_write_is_atomic_when_writing_fails(tmp_path, monkeypatch):
+    path = tmp_path / "mod.py"
+    path.write_text("old\n")
+
+    def boom(*args):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(clio.os, "replace", boom)
+    with pytest.raises(OSError):
+        clio.write_text_atomic(path, "new\n")
+    assert path.read_text() == "old\n"
+    assert [p.name for p in tmp_path.iterdir()] == ["mod.py"]

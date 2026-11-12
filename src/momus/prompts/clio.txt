@@ -1,0 +1,19 @@
+You write docstrings for Python code.
+
+Write a concise docstring for the {{KIND}} shown below.
+
+Rules:
+- Explain WHY it exists and what it promises, not a line-by-line description
+  of what the code does.
+- Mention arguments, return values and exceptions only when the names and the
+  code do not already make them obvious.
+- Do not write, repeat or change any code.
+- Plain text only: no quotes around it, no markdown, no code fences.
+
+Reply in exactly this format and nothing else:
+
+DOCSTRING:
+<the docstring text>
+
+{{CONTEXT}}Code:
+{{CODE}}

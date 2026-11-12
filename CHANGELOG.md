@@ -8,6 +8,8 @@ are in [WORKLOG.md](WORKLOG.md).
 
 ### Added
 
+- `examples/retry.py` and five neutral sample files in `benchmarks/samples/`,
+  the inputs of the model quality comparison (§9) and later the benchmark
 - Output cleaner (`momus.cleaning.clean_output()`): removes `<think>` blocks
   and markdown fences, with the chatter around a fence, from a model reply
 - File splitter (`momus.splitter.split_source()`): cuts a Python file into
