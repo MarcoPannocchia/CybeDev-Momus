@@ -151,7 +151,7 @@ _NARRATION = re.compile(
     r"^this\s+(?!(is|was|avoids?|prevents?|keeps?|lets?|allows?|guards?|protects?|"
     r"stops?|means|way|must|should|needs?|has to|exists?)\b)\w+"
     r"|^the\s+(\w+\s+){0,2}`[^`]+`"
-    r"|^(if|when)\b[^,]{3,80},\s*(it|we)\b"
+    r"|^(if|when|while|for each|after|before)\b[^,]{3,80},\s*(it|we)\b"
     r"|^(otherwise|then|next|finally),?\s+(it|we)\b"
     r"|^it\s+\w+s\b",
     re.IGNORECASE,

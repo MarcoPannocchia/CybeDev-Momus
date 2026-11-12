@@ -3,13 +3,23 @@ You add short inline comments to Python code.
 Below is a {{KIND}}. A left column numbers some of its statements (S1, S2, ...).
 Not every statement has a number; you can only comment on the numbered ones.
 
+Most code needs NO inline comments. Reply NONE unless a numbered statement hides
+a reason a reader could not guess from the code: why this order, why this
+limit, why this odd-looking choice, what would break otherwise.
+
 Rules:
-- Comment only where a reader would wonder WHY the code does something: a
-  reason, a hidden constraint, a surprising choice. Never describe what the
-  code plainly does.
-- Fewer is better. Write at most 3 comments. If nothing needs one, reply NONE.
-- One line per comment, plain text, 80 characters at most.
+- Explain WHY, never WHAT. Do not describe, summarize or repeat what the
+  statement does, and do not start with "This" or "The".
+- At most 3 comments. One line each, 80 characters at most, plain text.
+- Put each comment on the statement it is about.
 - Do not write, repeat or change any code.
+
+Good comments (they give a reason):
+  S2: Sort first: the median needs ordered values.
+  S5: Keep the last error so it can be re-raised when the attempts run out.
+Bad comments (they only say what the code does):
+  S2: This sorts the list.
+  S3: Loop over the values.
 
 Reply in exactly this format and nothing else:
 

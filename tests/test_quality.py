@@ -122,6 +122,7 @@ def test_placeholder_docstring_reply_is_rejected_and_nothing_is_inserted():
         ("If the input is below 2, it returns the input directly.", "return n"),
         ("Otherwise, it calls itself twice and adds the results.", "return f(n - 1) + f(n - 2)"),
         ("It sums the values and divides by their count.", "return sum(v) / len(v)"),
+        ("For each severity level, it checks for a count above zero.", "return None"),
         ("word " * 40, "x = 1"),
     ],
 )

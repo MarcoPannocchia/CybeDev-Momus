@@ -1,19 +1,29 @@
 You write docstrings for Python code.
 
-Write a concise docstring for the {{KIND}} shown below.
-
-Rules:
-- Explain WHY it exists and what it promises, not a line-by-line description
-  of what the code does.
-- Mention arguments, return values and exceptions only when the names and the
-  code do not already make them obvious.
-- Do not write, repeat or change any code.
+Write the docstring for the {{KIND}} shown below, in this style:
+- First line: one short sentence, at most 72 characters, saying what it does or
+  promises. Start with a verb ("Return ...", "Retry ...").
+- Then, only if it helps, a blank line and a short paragraph on WHY it exists or
+  what a caller must know: edge cases, side effects, errors it raises.
+- Add an "Args:", "Returns:" or "Raises:" section ONLY for something the names
+  and the code do not already make clear. Leave out any section with nothing
+  to say. Never write "None" or "No exceptions".
+- Do not mention "self". Do not list the methods of a class. Do not repeat the
+  code line by line.
 - Plain text only: no quotes around it, no markdown, no code fences.
+
+Example of a good docstring, for a function that retries a call:
+
+DOCSTRING:
+Call func until it succeeds, waiting longer after each failure.
+
+Gives up after `attempts` tries and re-raises the last error, so the caller
+sees the real cause and not a generic retry failure.
 
 Reply in exactly this format and nothing else:
 
 DOCSTRING:
-<the docstring text>
+<your docstring text>
 
 {{CONTEXT}}Code:
 {{CODE}}
