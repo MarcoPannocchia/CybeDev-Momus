@@ -3,6 +3,73 @@
 Tests run, choices made and why, newest first. Maintained by the `work-log`
 skill. User-facing changes are summarized in [CHANGELOG.md](CHANGELOG.md).
 
+## 2026-11-12 — Benchmark engine, `momus bench` (plan §11)
+
+**Changed**
+- `src/momus/bench.py` (new): `RecordingBackend`, `OllamaInfo`,
+  `collect_machine_conditions()`, `run_model()`, `summarize()`, `write_run()`,
+  `run_comparison()`, `main()`
+- `src/momus/cli.py`: `momus bench` (`--models`, `--files`, `--mode`, `--out`,
+  `--config`, `--notes`, `--keep-loaded`)
+- `src/momus/clio.py`: `Outcome` gained `kind` and `cause`
+- `src/momus/backends/local.py`: `last_usage` (token counts from the server)
+- `tests/test_bench.py` (new, 14 tests); one test each added to
+  `tests/test_clio.py` and two to `tests/test_backends.py`; `tests/test_smoke.py`
+  no longer treats `bench` as a placeholder
+- `plan-Momus.md` §11 (status note) and §17 (app feature idea), `CHANGELOG.md`
+
+**Tests**
+- Baseline before changes: 188 passed, 1 deselected
+- After: `.venv/bin/pytest` — 204 passed, 1 deselected (integration). No model
+  and no Ollama in the suite
+- Two of my own tests found a real bug before any run: result files were named
+  `..._qwen2.json` for `qwen2.5-coder:*` because `Path.with_suffix` took
+  `.5-coder-7b` for an extension, so two Qwen models could have overwritten
+  each other's results. Fixed by appending the extension as text. A third test
+  failure was a wrong expectation in the test itself
+- Mutation check by hand, three deliberate bugs (wrong guard-acceptance
+  formula, unloading when told not to, ignoring the installed-model check): each
+  caught
+- Real script check: `momus bench --models qwen2.5-coder:1.5b ghost-model:1b
+  --files benchmarks/samples/stats.py`, output in a throwaway folder. It wrote
+  both files for each model, recorded the conditions, and marked the missing
+  model "not installed" without calling it. The samples were untouched
+- That check ran on **battery** (`AC online = 0`, "Discharging"), the plan
+  requires mains, so its numbers (for the record: 16 insertions accepted, 10
+  requests, 50.8 s, 16.0 tok/s) are **not benchmark data** and were deleted
+- Not run: any official comparison, the 7B, 16B and 30B through `momus bench`,
+  Python versions other than 3.12.3
+
+**Decisions**
+- Wired as the planned `momus bench` command instead of a loose script, so the
+  same engine can serve the final app, as the maintainer asked. Assistant's
+  choice of shape: a plain module with no argument parsing in it
+- Dry run only: the engine reads the sample files and never writes them
+- One JSON (everything raw: each prompt, reply, seconds and token count) and
+  one Markdown (conditions, summary, per-file table, diffs to review) per model
+  per run
+- Models are unloaded before each run (`--keep-loaded` turns that off), so each
+  first request is a true cold load and models do not share memory. This does
+  unload models the maintainer may have loaded
+- Conditions recorded: power source (from `/sys`), power profile and CPU
+  governor, load average and free memory at the start, Ollama version, model
+  details and quantization, context length seen, commit (with a note if there
+  are uncommitted changes), and free-text `--notes`. Process names are not
+  recorded, since the files are meant to be published
+- Speed is completion tokens over wall-clock seconds, so it includes prompt
+  reading; the first request is reported separately because it may include the
+  model load. Context length is left at the server's default (4096 here) for
+  every model, for consistency
+- The plan's main metric, accepted insertions per minute of model time, and the
+  Argus acceptance share are in the summary. "Trivial or wrong comments" is for
+  a person to judge from the diffs; "flagged by the reviewer" waits for §10
+
+**Open / next**
+- The official run: plug in, close heavy applications, then the four models.
+  Plan: the assistant runs `qwen2.5-coder:1.5b` and `7b`, the maintainer runs
+  `deepseek-coder-v2:16b` and `qwen3-coder:30b`
+- Uncommitted: all of the above
+
 ## 2026-11-12 — Clio, slice 2: inline comments (plan §9)
 
 **Changed**

@@ -569,6 +569,17 @@ momus/
 
 ## 11. Phase G — Benchmark (`momus bench`)
 
+> **Status 2026-11-12:** the engine is built, as `momus bench`
+> (`src/momus/bench.py`). It runs Clio as a dry run with each model over the
+> sample files and writes, per model, a JSON file with everything raw and a
+> Markdown summary with the diffs to review, both starting with the measurement
+> conditions. It is kept as a reusable module so that the final app can call or
+> read it later (§17). **No official run exists yet.** The only real run was a
+> short script check on one file, on **battery**, and it was discarded. Not
+> covered by the engine: "comments flagged by the reviewer" (needs §10), the
+> usage ledger, and a judgement of trivial or wrong comments, which is left to
+> a person reading the Markdown diffs.
+
 - [ ] Table per model: seconds per file, tok/s, % of pieces accepted by Argus,
       number of comments flagged by the reviewer
 - [ ] Main metric: **comments accepted by Argus ÷ time spent**
@@ -1164,6 +1175,12 @@ running, §16.9) and a **usage space** of numbers (§16.10); the folder stays
 ---
 
 ## 17. Later ideas (not committed)
+
+- [ ] **Benchmark as a feature of the final app** (asked for by the maintainer,
+      2026-11-12): the engine behind `momus bench` (`src/momus/bench.py`) is a
+      plain module with no command-line code in it, so the settings app could
+      run it, or only read its result files, and show the comparison next to
+      the usage space (§16.10). Not designed yet
 
 - [ ] Pre-commit hook that runs `comment` + `guard` on staged files
 - [ ] A Claude Code skill or MCP wrapper around the CLI

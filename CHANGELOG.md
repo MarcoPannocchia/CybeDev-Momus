@@ -8,6 +8,15 @@ are in [WORKLOG.md](WORKLOG.md).
 
 ### Added
 
+- `momus bench`: runs Clio as a dry run with several models over the same
+  files and writes, per model, a raw JSON file and a Markdown summary into
+  `benchmarks/results/`, both starting with the measurement conditions (power
+  source, load, free memory, Ollama version, quantization, cold or warm start,
+  commit). The engine is `src/momus/bench.py`, reusable by a future app
+- Outcomes now say what they are (`kind`: docstring or comment) and why a
+  rejection happened (`cause`: backend, reply, anchor or guard)
+- `LocalBackend.last_usage`: the token counts the server reported for the last
+  reply
 - Clio, inline comments: the model is shown a function with numbered
   statements (S1, S2, ...) and answers `S3: comment text`; Momus inserts the
   comment above that statement. Statements that already have a comment, `elif`
