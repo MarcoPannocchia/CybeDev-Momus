@@ -9,7 +9,14 @@ import textwrap
 
 import pytest
 
-from momus.argus import ArgusError, Verdict, code_fingerprint, compare_code, normalized_tree
+from momus.argus import (
+    ArgusError,
+    Verdict,
+    check_inserted_lines,
+    code_fingerprint,
+    compare_code,
+    normalized_tree,
+)
 
 
 def src(text: str) -> str:
@@ -273,3 +280,136 @@ def test_normalization_raises_argus_error_on_bad_source():
         normalized_tree("def (:\n")
     with pytest.raises(ArgusError):
         code_fingerprint(None)
+
+
+# --- Second check: the original text is intact around inserted lines -------
+
+BEFORE = "def add(a, b):\n    return a + b\n"
+AFTER = 'def add(a, b):\n    """Return the sum."""\n    # plain addition\n    return a + b\n'
+
+
+def intact(original, new, inserted) -> bool:
+    verdict = check_inserted_lines(original, new, inserted)
+    assert isinstance(verdict, Verdict)
+    assert verdict.reason
+    return verdict.accepted
+
+
+def test_inserted_lines_removed_give_original_is_accepted():
+    assert intact(BEFORE, AFTER, [2, 3])
+    assert intact(BEFORE, AFTER, {3, 2})  # any collection, any order
+
+
+def test_no_insertions_and_equal_texts_is_accepted():
+    assert intact(BEFORE, BEFORE, [])
+
+
+def test_empty_set_when_texts_differ_is_discarded():
+    assert not intact(BEFORE, AFTER, [])
+
+
+@pytest.mark.parametrize("inserted", [[0, 2], [-1], [2, 5], [99]])
+def test_line_numbers_out_of_range_are_discarded(inserted):
+    assert not intact(BEFORE, AFTER, inserted)
+
+
+def test_duplicate_line_numbers_are_discarded():
+    assert not intact(BEFORE, AFTER, [2, 3, 3])
+
+
+@pytest.mark.parametrize("inserted", [[2], [2, 3, 4], [1, 2]])
+def test_wrong_set_of_lines_is_discarded(inserted):
+    assert not intact(BEFORE, AFTER, inserted)
+
+
+def test_reformatted_code_line_is_discarded():
+    # The tree comparison accepts this; the byte check is what rejects it.
+    reformatted = 'def add(a, b):\n    """Return the sum."""\n    return a+b\n'
+    assert compare_code(BEFORE, reformatted).accepted
+    assert not intact(BEFORE, reformatted, [2])
+
+
+def test_trailing_whitespace_added_to_a_code_line_is_discarded():
+    new = 'def add(a, b):  \n    """Return the sum."""\n    return a + b\n'
+    assert not intact(BEFORE, new, [2])
+
+
+def test_pass_replaced_by_docstring_is_discarded():
+    # Accepted by the tree comparison (plan §7); stopped here.
+    original = "def stub():\n    pass\n"
+    new = 'def stub():\n    """Explain the stub."""\n'
+    assert compare_code(original, new).accepted
+    assert not intact(original, new, [2])
+
+
+# Line endings
+
+
+def test_consistent_crlf_text_is_accepted():
+    original = "def add(a, b):\r\n    return a + b\r\n"
+    new = "def add(a, b):\r\n    # plain addition\r\n    return a + b\r\n"
+    assert intact(original, new, [2])
+
+
+def test_inserted_line_with_a_different_ending_is_discarded():
+    original = "def add(a, b):\r\n    return a + b\r\n"
+    new = "def add(a, b):\r\n    # plain addition\n    return a + b\r\n"
+    assert not intact(original, new, [2])
+
+
+def test_line_endings_converted_in_the_new_text_are_discarded():
+    original = "def add(a, b):\r\n    return a + b\r\n"
+    new = "def add(a, b):\n    # plain addition\n    return a + b\n"
+    assert not intact(original, new, [2])
+
+
+def test_original_with_mixed_line_endings_is_discarded_even_if_unchanged():
+    mixed = "x = 1\r\ny = 2\n"
+    assert not intact(mixed, mixed, [])
+
+
+def test_form_feed_is_not_counted_as_a_line_break():
+    # Python does not start a new source line at a form feed, so the inserted
+    # comment is line 2, not line 3.
+    original = "x = 1\x0c\ny = 2\n"
+    new = "x = 1\x0c\n# note\ny = 2\n"
+    assert intact(original, new, [2])
+    assert not intact(original, new, [3])
+
+
+# Final newline
+
+
+def test_original_without_final_newline_stays_without_it():
+    original = "x = 1\ny = 2"
+    assert intact(original, "x = 1\n# note\ny = 2", [2])
+
+
+def test_final_newline_added_to_the_original_last_line_is_discarded():
+    # Appending a comment after the last line forces a newline onto `y = 2`,
+    # which changes a byte of the original.
+    original = "x = 1\ny = 2"
+    assert not intact(original, "x = 1\ny = 2\n# note", [3])
+    assert not intact(original, "x = 1\ny = 2\n# note\n", [3])
+
+
+def test_final_newline_removed_from_the_original_is_discarded():
+    assert not intact("x = 1\ny = 2\n", "x = 1\n# note\ny = 2", [2])
+
+
+def test_inserted_last_line_without_newline_leaves_original_bytes_intact():
+    assert intact("x = 1\n", "x = 1\n# note", [2])
+
+
+# Fail closed on bad input
+
+
+@pytest.mark.parametrize("bad", [None, b"x = 1\n", 7])
+def test_inserted_check_rejects_non_text(bad):
+    assert not intact(bad, AFTER, [2, 3])
+    assert not intact(BEFORE, bad, [2, 3])
+
+
+@pytest.mark.parametrize("inserted", [None, 2, [2.0, 3], ["2", "3"], [True, 3]])
+def test_inserted_check_rejects_bad_line_numbers(inserted):
+    assert not intact(BEFORE, AFTER, inserted)

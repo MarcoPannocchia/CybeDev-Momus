@@ -379,7 +379,7 @@ momus/
         2026-11-11, §9) → accepted
   - [x] the tuple `(1,)` changed to `(1)` → discarded (checked 2026-11-11:
         `ast.dump` tells them apart)
-- [ ] **Added 2026-11-11 — what Argus does not see, and the second check.**
+- [x] **Added 2026-11-11 — what Argus does not see, and the second check.**
       Checked by running `ast.dump` on small examples (2026-11-11): spacing
       (`x=1` vs `x = 1`), quote style, redundant parentheses, line wrapping
       and a trailing comma in a call all give the **same** dump. So a
@@ -390,8 +390,10 @@ momus/
       same module — removing the lines Momus inserted from the new text must
       give the original text **byte for byte**. If it does not, the output is
       discarded. This is stricter than the AST comparison and shares its
-      fail-closed rule
-- [ ] Build order inside this phase (2026-11-11): first the core comparison
+      fail-closed rule — built 2026-11-12 as `check_inserted_lines()`, 90
+      tests green in the whole suite. **Not wired into the pipeline yet**
+      (that happens in §9)
+- [x] Build order inside this phase (2026-11-11, followed 2026-11-12): first the core comparison
       with its tests (the items above, up to the `(1,)` test); then the second
       check as a **pure function** that receives the original text, the new
       text and the numbers of the inserted lines. It can be built and tested

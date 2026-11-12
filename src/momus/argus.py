@@ -5,12 +5,15 @@ that promise: it compares the code before and after, ignoring comments and
 docstrings, and rejects everything it cannot prove unchanged (it fails
 closed).
 
-What this comparison does NOT see: spacing, quote style, redundant
+What the tree comparison does NOT see: spacing, quote style, redundant
 parentheses and line wrapping all parse to the same tree, so a reformatted
-file passes here. A second, byte-level check covers that (plan §7).
+file passes it. The second check, ``check_inserted_lines``, covers that: the
+lines Momus added, once removed, must give back the original text exactly.
 """
 
 import ast
+import re
+from collections.abc import Iterable
 from dataclasses import dataclass
 
 # The node types that can carry a docstring, as Python itself defines it.
@@ -112,3 +115,64 @@ def compare_code(original: str, new: str) -> Verdict:
     if before != after:
         return Verdict(False, "code differs from the original")
     return Verdict(True, "code identical apart from comments and docstrings")
+
+
+# One line of text with its own ending kept. Only the endings Python itself
+# counts as a new source line are used (\n, \r\n, \r). `str.splitlines`
+# would also split on form feeds and Unicode separators, and the line numbers
+# would then disagree with the ones `ast` reports.
+_LINE = re.compile(r"[^\r\n]*(?:\r\n|\r|\n)|[^\r\n]+")
+_ENDING = re.compile(r"\r\n|\r|\n")
+
+
+def _split_lines(text: str) -> list[str]:
+    """Split ``text`` into lines that, joined back, give ``text`` exactly."""
+    return _LINE.findall(text)
+
+
+def check_inserted_lines(original: str, new: str, inserted_lines: Iterable[int]) -> Verdict:
+    """Decide whether ``new`` is ``original`` plus exactly the inserted lines.
+
+    ``inserted_lines`` holds the 1-based numbers, in ``new``, of the lines
+    Momus added. Removing those lines must give ``original`` character for
+    character, so every other line is untouched: no reformatting, no changed
+    spacing, no altered line ending. Characters are compared, which is the
+    same as comparing bytes for any single encoding.
+
+    Rejected, because none of them can be proven safe: input that is not
+    text, line numbers that are not whole numbers, are repeated or fall
+    outside ``new``, an empty set when the texts differ, and a mix of line
+    ending styles in either text. This function never raises.
+    """
+    if not isinstance(original, str) or not isinstance(new, str):
+        return Verdict(False, "both texts must be text")
+    try:
+        numbers = list(inserted_lines)
+    except TypeError:
+        return Verdict(False, "inserted lines must be a collection of line numbers")
+    # `bool` is a kind of `int` in Python; True would silently mean line 1.
+    if any(not isinstance(n, int) or isinstance(n, bool) for n in numbers):
+        return Verdict(False, "line numbers must be whole numbers")
+    if len(set(numbers)) != len(numbers):
+        return Verdict(False, "a line number is repeated")
+
+    # Checked on both texts together, so an inserted line that ends
+    # differently from the file is caught as well as a file that was already
+    # inconsistent.
+    endings = set(_ENDING.findall(original)) | set(_ENDING.findall(new))
+    if len(endings) > 1:
+        return Verdict(False, "mixed line endings")
+
+    new_lines = _split_lines(new)
+    if any(n < 1 or n > len(new_lines) for n in numbers):
+        return Verdict(False, "a line number is outside the new text")
+    if not numbers and original != new:
+        return Verdict(False, "no inserted lines were given, but the texts differ")
+
+    removed = set(numbers)
+    remainder = "".join(
+        line for number, line in enumerate(new_lines, start=1) if number not in removed
+    )
+    if remainder != original:
+        return Verdict(False, "removing the inserted lines does not give the original text")
+    return Verdict(True, "the original text is intact around the inserted lines")

@@ -3,6 +3,46 @@
 Tests run, choices made and why, newest first. Maintained by the `work-log`
 skill. User-facing changes are summarized in [CHANGELOG.md](CHANGELOG.md).
 
+## 2026-11-12 — Argus, part 2: byte-level check on inserted lines (plan §7)
+
+**Changed**
+- `src/momus/argus.py`: `check_inserted_lines(original, new, inserted_lines)`
+  and the private `_split_lines()`
+- `tests/test_argus.py`: 31 more tests (67 in the file)
+- `plan-Momus.md` §7: the second check and the build order checked
+
+**Tests**
+- Baseline before changes: `.venv/bin/pytest` — 59 passed, 1 deselected
+- After: `.venv/bin/pytest` — 90 passed, 1 deselected (integration)
+- Not run: Python versions other than 3.12.3; the check on real inserted
+  lines, because the insertion step (§9) does not exist yet
+
+**Decisions**
+- Text is compared as Python `str`, not as `bytes` — assistant's choice. Equal
+  characters mean equal bytes in any single encoding. Reading and writing the
+  file without changing its encoding, its BOM or its newlines is the job of
+  the write path in §9 and is **not** covered here
+- Lines are split only on `\n`, `\r\n` and `\r`, not with `str.splitlines`,
+  which also splits on form feeds and Unicode separators and would give line
+  numbers different from the ones `ast` reports
+- Mixed line endings are looked for in both texts together. So a file that
+  already mixes endings is rejected even with nothing inserted — assistant's
+  choice, the strict reading of "fail closed": Momus will refuse such files
+  until someone decides otherwise
+- An inserted last line without a final newline is accepted when the
+  original bytes are intact (`"x = 1\n"` → `"x = 1\n# note"`). Adding a
+  newline to the original's last line, or removing its final newline, is
+  rejected
+- Line numbers must be real integers; `True`, `2.0` and `"2"` are rejected
+- The function does not check that the inserted lines are comments. That is
+  the tree comparison's job: both checks must pass
+
+**Open / next**
+- §7 "Done when" also asks that the maintainer can explain the logic in plain
+  words
+- `momus guard` is still a placeholder; wiring both checks in is §9
+- Uncommitted: all of the above
+
 ## 2026-11-12 — Argus, part 1: core comparison (plan §7)
 
 **Changed**

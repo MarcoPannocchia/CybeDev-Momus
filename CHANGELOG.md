@@ -8,6 +8,10 @@ are in [WORKLOG.md](WORKLOG.md).
 
 ### Added
 
+- Argus second check (`check_inserted_lines()`): removing the lines Momus
+  inserted must give the original text exactly, so reformatting, changed
+  line endings and a changed final newline are rejected. Not wired into the
+  pipeline yet
 - Argus, the AST guard (`momus.argus`): `compare_code()` accepts a new text
   only if its code is identical to the original apart from comments and
   docstrings, and rejects anything it cannot analyse. Not wired into the CLI
