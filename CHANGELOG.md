@@ -81,6 +81,9 @@ are in [WORKLOG.md](WORKLOG.md).
 
 ### Changed
 
+- `momus comment` and `momus bench` now generate **docstrings only** by
+  default. Inline comments are still available with `--mode both` or
+  `--mode comments`
 - Both Clio prompts rewritten: a fixed docstring style, comments only where a
   reason is hidden, and no examples (a small model copied them into the code)
 - A method is shown to the model inside a `class X:` header instead of being

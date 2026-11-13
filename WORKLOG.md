@@ -3,6 +3,38 @@
 Tests run, choices made and why, newest first. Maintained by the `work-log`
 skill. User-facing changes are summarized in [CHANGELOG.md](CHANGELOG.md).
 
+## 2026-11-13 — Docstrings by default, comments on request (plan §2, §9)
+
+**Changed**
+- `src/momus/clio.py`: `DEFAULT_MODE = "docstrings"`, used by `comment_source()`
+- `src/momus/cli.py`: `--mode` of `momus comment` and `momus bench` defaults to
+  it; help text updated
+- `tests/test_clio.py`, `tests/test_bench.py`: expectations updated, one test
+  added (the default sends no comment request)
+- `plan-Momus.md` §2 and §9, `CHANGELOG.md`
+
+**Tests**
+- Baseline before the change: 335 passed, 1 deselected
+- After: `.venv/bin/pytest` — 336 passed, 1 deselected (integration)
+- Real dry run: `.venv/bin/momus comment examples/retry.py` with the default
+  model (`qwen2.5-coder:1.5b`) produced one docstring and no comment request;
+  the file was unchanged afterwards (`git diff --quiet`)
+- Not run: `--mode both` with a real model after this change (its code path
+  did not change and is covered by the fake-backend tests)
+
+**Decisions**
+- Decided by the maintainer on the assistant's proposal: docstrings only by
+  default. Reason and numbers are in the entry below; the inline-comment code
+  stays, as an opt-in
+- `momus bench` follows the same default, so a benchmark measures what the
+  product does by default — assistant's choice; `--mode both` still measures
+  the comments
+
+**Open / next**
+- Run the reviewer on Clio's output, where the false statements would be caught
+- Uncommitted: the three doc files; the code is in the maintainer's commit
+  `976254e`
+
 ## 2026-11-13 — Clio output quality, first pass (plan §9)
 
 **Changed**

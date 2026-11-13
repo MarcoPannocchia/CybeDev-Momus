@@ -91,6 +91,15 @@ Planned CLI: `momus comment`, `momus guard`, `momus review`, `momus bench`,
       first quality comparison; that comparison still runs, and the choice is
       reconsidered only if it shows a problem. This mode alone gives docstrings
       only; inline `#` comments are covered by the anchoring decided in §9
+- [x] **Docstrings by default, inline comments on request** — decided
+      2026-11-13 by the maintainer, on the assistant's proposal: `momus comment`
+      and `momus bench` generate docstrings only unless `--mode both` (or
+      `comments`) is given. Reason: after the quality rules of §9 very few
+      inline comments survive (about one in five files for the 7B, three for the
+      1.5B, one run each), and asking for them doubles the model calls. Option
+      (b) of §9 stays built and tested; this only changes the default. To be
+      reconsidered once the reviewer (§10) runs on Clio's output or a better
+      model is chosen
 - [x] **A separate settings app is part of the product** — decided 2026-11-10:
       a small, standalone app to change configuration (backend/model choice per
       stage, endpoints, and GPU settings — see §3a and §16) independent of the
@@ -506,7 +515,9 @@ momus/
       some on the wrong statement, and gave 4 comments where the prompt allows
       3; `qwen2.5-coder:7b` answered `NONE` for every function tried. One run
       each, so these are first impressions, not results. The quality comparison
-      measures it, and (b) is reconsidered only if it shows a problem
+      measures it, and (b) is reconsidered only if it shows a problem.
+      **Since 2026-11-13 inline comments are off by default** (`--mode both`
+      turns them on), see §2
 - [ ] Statement anchors by hash (idea from the maintainer, 2026-11-11) —
       **partly built 2026-11-12**: the statement numbering (S1, S2, …) and the
       insertion above the named statement exist in `clio.py`, tested with the
