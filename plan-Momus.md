@@ -16,8 +16,9 @@ criterion, and anything not yet verified is marked as such.
 - Each section is a project area or a decision already made in chat
 - Dates are ISO (`YYYY-MM-DD`). Decisions carry the date they were made
 - Reference state for the latest update of this plan: **pre-v0.1.0, §5–§8
-  built (skeleton, local backend, Argus, cleaning, splitter); no Clio yet**.
-  Last updated **2026-11-12**
+  built (skeleton, local backend, Argus, cleaning, splitter), plus the Clio
+  docstring slice (§9), the critic (§10) and the benchmark engine (§11); the
+  official benchmark run is deferred**. Last updated **2026-11-13**
 - Language rules: this plan, all code, comments, docstrings, commit messages
   and the README are in **English**. Explanations to the maintainer in chat are
   also in English
