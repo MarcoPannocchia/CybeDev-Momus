@@ -41,6 +41,10 @@ REJECTED = "rejected"
 
 # What to generate. "both" asks for docstrings first, then comments.
 MODES = ("both", "docstrings", "comments")
+# Docstrings only, unless asked. Inline comments double the model calls and,
+# after the quality rules, very few survive (measured 2026-11-13 on two
+# models), so they are an opt-in until that changes.
+DEFAULT_MODE = "docstrings"
 
 # A function with fewer numbered statements than this is not offered for
 # comments: there is little to explain, and small models over-comment.
@@ -523,10 +527,10 @@ def _sits_above(new: str, inserted: list[int], original_line: str) -> bool:
     return inserted[-1] < len(new_lines) and new_lines[inserted[-1]] == original_line
 
 
-def comment_source(source: str, backend: Backend, mode: str = "both") -> ClioResult:
-    """Add missing docstrings and inline comments to ``source``.
+def comment_source(source: str, backend: Backend, mode: str = DEFAULT_MODE) -> ClioResult:
+    """Add missing docstrings, and inline comments if asked, to ``source``.
 
-    ``mode`` is ``"docstrings"``, ``"comments"`` or ``"both"``. Text comes from
+    ``mode`` is ``"docstrings"`` (the default), ``"comments"`` or ``"both"``. Text comes from
     ``backend``; Momus does the inserting and Argus the verifying. Each
     insertion is checked on its own, and one that fails is dropped without
     affecting the others. A final check covers the combined result. A file

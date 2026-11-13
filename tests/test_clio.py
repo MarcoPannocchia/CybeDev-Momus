@@ -498,7 +498,7 @@ def test_comment_that_is_not_directly_above_its_statement_is_dropped(monkeypatch
 
 def test_docstring_stays_above_a_comment_on_the_first_statement():
     backend = FakeBackend([reply("Run it."), comment_reply("S1: Start empty.")])
-    result = clio.comment_source(RETRY, backend)
+    result = clio.comment_source(RETRY, backend, mode="both")
     assert statuses(result) == {"retry": ADDED, "retry S1": ADDED}
     lines = result.text.splitlines()
     assert lines[1:3] == ['    """Run it."""', "    # Start empty."]
@@ -522,7 +522,7 @@ def test_modes_ask_only_for_what_they_name():
 def test_command_mode_option_is_parsed_and_used(tmp_path):
     from momus.cli import build_parser
 
-    assert build_parser().parse_args(["comment", "f.py"]).mode == "both"
+    assert build_parser().parse_args(["comment", "f.py"]).mode == "docstrings"
     assert build_parser().parse_args(["comment", "f.py", "--mode", "comments"]).mode == "comments"
     path = tmp_path / "mod.py"
     path.write_text(RETRY)
@@ -609,3 +609,12 @@ def test_comments_that_were_refused_do_not_use_up_the_limit():
     reply = comment_reply("S9: Nowhere.", "S1: One.", "S2: Two.", "S3: Three.")
     result = comments(RETRY, FakeBackend([reply]))
     assert sum(o.status == ADDED for o in result.outcomes) == 3
+
+
+def test_inline_comments_are_opt_in():
+    # By default only docstrings are asked for: no comment request reaches the model.
+    backend = FakeBackend([reply("Run it.")])
+    result = clio.comment_source(RETRY, backend)
+    assert len(backend.prompts) == 1 and "DOCSTRING" in backend.prompts[0]
+    assert statuses(result) == {"retry": ADDED}
+    assert "#" not in result.text

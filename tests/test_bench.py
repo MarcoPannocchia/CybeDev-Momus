@@ -201,7 +201,7 @@ def test_keep_loaded_does_not_unload(tmp_path):
 
 def test_bench_options_are_parsed():
     args = build_parser().parse_args(["bench", "--models", "a", "b", "--keep-loaded", "--notes", "x"])
-    assert (args.models, args.keep_loaded, args.notes, args.mode) == (["a", "b"], True, "x", "both")
+    assert (args.models, args.keep_loaded, args.notes, args.mode) == (["a", "b"], True, "x", "docstrings")
 
 
 def test_main_refuses_to_run_without_files(tmp_path, capsys):

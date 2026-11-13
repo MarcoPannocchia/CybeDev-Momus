@@ -1,6 +1,6 @@
 """Command-line entry point for Momus.
 
-``comment`` (docstrings and inline comments), ``review`` (check the added
+``comment`` (docstrings, and inline comments on request), ``review`` (check the added
 comments with a strong model) and ``bench`` (compare models) are implemented.
 ``guard`` is still a placeholder that reports it is not implemented and exits
 with a non-zero status, so nothing can be mistaken for working behaviour.
@@ -15,7 +15,7 @@ from pathlib import Path
 from momus import bench
 from momus.backends import Backend, BackendError
 from momus.critic import CriticError, read_git_baseline, review_changes
-from momus.clio import MODES, ClioError, comment_source, read_text_exact, write_text_atomic
+from momus.clio import DEFAULT_MODE, MODES, ClioError, comment_source, read_text_exact, write_text_atomic
 from momus.config import (
     build_local_backend,
     build_review_backend,
@@ -53,8 +53,8 @@ def build_parser() -> argparse.ArgumentParser:
             sub.add_argument(
                 "--mode",
                 choices=MODES,
-                default="both",
-                help="what to add: docstrings, inline comments, or both (default)",
+                default=DEFAULT_MODE,
+                help="what to add: docstrings (default), inline comments, or both",
             )
             sub.add_argument("--config", type=Path, default="momus.toml", help="config file")
         if name == "review":
@@ -76,7 +76,9 @@ def build_parser() -> argparse.ArgumentParser:
                 nargs="+",
                 help=f"files to run on (default: {bench.DEFAULT_SAMPLES})",
             )
-            sub.add_argument("--mode", choices=MODES, default="both", help="what to generate")
+            sub.add_argument(
+                "--mode", choices=MODES, default=DEFAULT_MODE, help="what to generate (default: docstrings)"
+            )
             sub.add_argument("--out", default=bench.DEFAULT_OUT, help="folder for the result files")
             sub.add_argument("--config", type=Path, default="momus.toml", help="config file")
             sub.add_argument(
@@ -93,7 +95,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def comment_command(
-    files: list[Path], backend: Backend, write: bool, mode: str = "both", out=None
+    files: list[Path], backend: Backend, write: bool, mode: str = DEFAULT_MODE, out=None
 ) -> int:
     """Run Clio on ``files``; show a diff, and write only if ``write`` is true.
 
