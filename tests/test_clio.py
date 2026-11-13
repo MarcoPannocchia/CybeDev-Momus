@@ -473,11 +473,11 @@ def test_methods_get_comments_with_their_class_in_the_name():
         "            total += 1\n"
         "        return total\n"
     )
-    backend = FakeBackend([comment_reply("S2: Count up.")])
+    backend = FakeBackend([comment_reply("S2: Counted by hand so each step can be traced.")])
     result = comments(source, backend)
     assert statuses(result) == {"Box.grow S2": ADDED}
     assert "This method belongs to the class Box." in backend.prompts[0]
-    assert "        # Count up.\n        for _ in range(n):" in result.text
+    assert "        # Counted by hand so each step can be traced.\n        for _ in range(n):" in result.text
 
 
 def test_crlf_file_keeps_its_line_endings_for_comments():

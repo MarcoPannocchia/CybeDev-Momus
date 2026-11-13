@@ -8,24 +8,17 @@ a reason a reader could not guess from the code: why this order, why this
 limit, why this odd-looking choice, what would break otherwise.
 
 Rules:
-- Explain WHY, never WHAT. Do not describe, summarize or repeat what the
-  statement does, and do not start with "This" or "The".
+- Give the reason, never a description. A comment that says what the statement
+  does is wrong, however true it is.
+- Do not start with "This", "The", "It" or "If".
 - At most 3 comments. One line each, 80 characters at most, plain text.
 - Put each comment on the statement it is about.
 - Do not write, repeat or change any code.
 
-Good comments (they give a reason):
-  S2: Sort first: the median needs ordered values.
-  S5: Keep the last error so it can be re-raised when the attempts run out.
-Bad comments (they only say what the code does):
-  S2: This sorts the list.
-  S3: Loop over the values.
-
 Reply in exactly this format and nothing else:
 
 COMMENTS:
-S3: the comment text
-S7: the comment text
+S<number>: <the reason>
 
 or, if nothing needs a comment:
 

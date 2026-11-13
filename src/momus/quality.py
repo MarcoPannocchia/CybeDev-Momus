@@ -30,9 +30,18 @@ _HEADINGS = {
     "exceptions": "Raises",
     "yield": "Yields",
     "yields": "Yields",
+    "attributes": "Attributes",
 }
-# Sections whose lines are list entries and get the entry clean-up.
-_ENTRY_SECTIONS = {"Args", "Returns", "Raises", "Yields"}
+# Sections that only list what the code already shows; they are removed.
+_DROPPED_HEADINGS = {
+    "methods",
+    "method",
+    "static method",
+    "static methods",
+    "class method",
+    "class methods",
+    "properties",
+}
 # Other headings that only get a blank line before and an indent after.
 _OTHER_HEADINGS = {"example": "Example", "examples": "Examples", "note": "Note", "notes": "Notes"}
 
@@ -58,6 +67,27 @@ def is_placeholder(text: str) -> bool:
     return bool(_TEMPLATE.search(text.strip()))
 
 
+def _normalized(text: str) -> str:
+    """Lower-case ``text`` and reduce it to words separated by single spaces."""
+    return " ".join(re.findall(r"[a-z0-9']+", text.lower()))
+
+
+def copied_from_instructions(text: str, instructions: str) -> bool:
+    """Tell whether a sentence of ``text`` is lifted from ``instructions``.
+
+    Small models sometimes paste part of their prompt into the answer: an
+    example, or the sentence that gave them context. Such text is about the
+    prompt, not about the code, so it is false wherever it lands. A sentence of
+    four words or more that appears word for word in the instructions counts.
+    """
+    source = f" {_normalized(instructions)} "
+    for sentence in re.split(r"[.!?\n]+", text):
+        words = _normalized(sentence)
+        if len(words.split()) >= 4 and f" {words} " in source:
+            return True
+    return False
+
+
 def _is_vacuous(line: str) -> bool:
     stripped = line.strip()
     return bool(_VACUOUS.match(stripped) or _SELF_ENTRY.match(stripped))
@@ -70,8 +100,10 @@ def polish_docstring(text: str) -> str:
     ``Returns``, ``Raises``) and a blank line before them; their entries lose
     bullets and backticks around the name and are indented. Entries that say
     nothing (``None``, "no exceptions", the ``self`` argument) are dropped, and
-    a section left empty goes with them. A long single paragraph is split after
-    its first sentence so there is a summary line. A heading with its text on
+    a section left empty goes with them. A list of the class's methods is
+    removed. Plain paragraphs are joined into single lines, to be wrapped evenly
+    later. A long single paragraph is split after its first sentence so there
+    is a summary line. A heading with its text on
     the same line (``Returns: the value.``) is left alone, unless that text
     says nothing.
     """
@@ -82,7 +114,7 @@ def polish_docstring(text: str) -> str:
 
     def close() -> None:
         nonlocal section, kind, body
-        if section is not None:
+        if section is not None and kind != "drop":
             kept = [line for line in body if not (kind == "entries" and _is_vacuous(line))]
             if any(line.strip() for line in kept):
                 if out and out[-1] != "":
@@ -104,6 +136,9 @@ def polish_docstring(text: str) -> str:
         elif heading and name in _OTHER_HEADINGS and not rest:
             close()
             section, kind = _OTHER_HEADINGS[name], "other"
+        elif heading and name in _DROPPED_HEADINGS and not rest:
+            close()
+            section, kind = name, "drop"
         elif section is not None and not line.strip():
             close()
             out.append("")
@@ -115,7 +150,39 @@ def polish_docstring(text: str) -> str:
         else:
             out.append(line)
     close()
-    return _add_summary_line(re.sub(r"\n{3,}", "\n\n", "\n".join(out)).strip("\n"))
+    text = re.sub(r"\n{3,}", "\n\n", "\n".join(out)).strip("\n")
+    # A last line such as "Example usage:" with nothing after it promises
+    # content that never came.
+    text = re.sub(r"\n+[^\n]{0,40}:\s*$", "", text) if "\n" in text else text
+    return _add_summary_line(_reflow(text))
+
+
+def _reflow(text: str) -> str:
+    """Join the lines of each plain paragraph into one line.
+
+    Models break lines wherever they like; wrapping such text again gives
+    ragged lines. Sections, indented lines, list items and a heading with its
+    text on the same line are left as they are.
+    """
+    paragraphs = []
+    for paragraph in text.split("\n\n"):
+        lines = paragraph.split("\n")
+        special = any(
+            line[:1].isspace() or _BULLET.match(line) or re.match(r"\d+[.)]\s", line) for line in lines
+        ) or lines[0].rstrip().endswith(":")
+        if special:
+            paragraphs.append(paragraph)
+            continue
+        joined: list[str] = []
+        for line in lines:
+            heading = _HEADING_LINE.match(line)
+            inline_heading = heading and heading.group(1).strip().lower() in _HEADINGS
+            if joined and not inline_heading and not joined[-1].startswith("\0"):
+                joined[-1] += " " + line.strip()
+            else:
+                joined.append(("\0" if inline_heading else "") + line.strip())
+        paragraphs.append("\n".join(line.lstrip("\0") for line in joined))
+    return "\n\n".join(paragraphs)
 
 
 def _add_summary_line(text: str) -> str:
@@ -154,6 +221,37 @@ _NARRATION = re.compile(
     r"|^(if|when|while|for each|after|before)\b[^,]{3,80},\s*(it|we)\b"
     r"|^(otherwise|then|next|finally),?\s+(it|we)\b"
     r"|^it\s+\w+s\b",
+    re.IGNORECASE,
+)
+# "Initialize the range of values.": an instruction that says what the line does.
+_IMPERATIVE = re.compile(
+    r"^(initiali[sz]e|calculate|compute|check|loop|iterate|return|set|create|sort|update|add|remove|"
+    r"get|define|assign|store|append|increment|decrement|convert|call|raise|find|build|join|split|"
+    r"filter|extract|handle|catch|print|read|write|open|close|sum|count|apply|reset|clear|determine|"
+    r"ensure|verify|validate|format|parse|generate|retrieve|fetch|load|save|delete|insert|combine|"
+    r"concatenate|truncate|strip|replace|collect|record|track|skip|yield|declare|construct|populate|"
+    r"copy|select|compare|accumulate|adjust|normali[sz]e|wrap|use|make|run|execute|perform)s?\b",
+    re.IGNORECASE,
+)
+# Words that show a comment gives a reason and not only a description.
+_REASON = re.compile(
+    r"\b(so|because|since|otherwise|unless|avoids?|prevents?|needs?|must|would|in case|instead|"
+    r"rather than|in order to|guarantees?|requires?|required|"
+    r"to (keep|avoid|prevent|make sure|allow|let|stop|protect|guard))\b|[:;]",
+    re.IGNORECASE,
+)
+# "The mean is calculated by dividing ...": the passive voice of narration.
+_PASSIVE = re.compile(
+    r"\b(is|are|gets?)\s+(then\s+|first\s+|also\s+)?(calculated|computed|obtained|set|decremented|"
+    r"incremented|updated|removed|added|returned|sorted|initiali[sz]ed|created|checked|used|stored|"
+    r"appended|adjusted|determined|assigned|converted|formatted|joined|raised|called|passed)\b",
+    re.IGNORECASE,
+)
+# "The loop iterates over each line ...": a subject and a verb that narrate.
+_NARRATING_VERB = re.compile(
+    r"\b(returns|iterates|loops|checks|appends|adds|creates|calculates|computes|sets|updates|removes|"
+    r"raises|calls|sorts|stores|extracts|parses|formats|joins|converts|initiali[sz]es|assigns|"
+    r"increments|decrements|processes|handles|takes|retrieves|determines|verifies)\b",
     re.IGNORECASE,
 )
 # An inline comment longer than this is a paragraph of narration.
@@ -211,8 +309,9 @@ def comment_problem(text: str, statement: str) -> str | None:
     """Return why a comment above ``statement`` should be dropped, or None.
 
     Dropped: placeholders; comments that narrate ("This checks ...", "The `x`
-    ...", "If ..., it ...", "Otherwise, it ..."); comments longer than a couple
-    of lines; and comments whose words are mostly found in the statement
+    ...", "If ..., it ...", "Otherwise, it ..."); bare instructions and
+    passive descriptions with no reason ("Initialize the total.", "The total
+    is calculated ..."); comments longer than a couple of lines; and comments whose words are mostly found in the statement
     itself, which only say again what the code says.
     """
     if is_placeholder(text):
@@ -220,6 +319,9 @@ def comment_problem(text: str, statement: str) -> str | None:
     stripped = text.strip()
     if _DESCRIPTIVE_OPENER.match(stripped) or _NARRATION.match(stripped):
         return "the comment describes the code instead of explaining it"
+    describes = _IMPERATIVE.match(stripped) or _PASSIVE.search(stripped) or _NARRATING_VERB.search(stripped)
+    if describes and not _REASON.search(stripped):
+        return "the comment says what the code does, with no reason"
     if len(stripped) > MAX_COMMENT_CHARS:
         return "the comment is too long for an inline comment"
     words = _words(text)

@@ -182,6 +182,7 @@ def test_comparison_skips_models_that_are_not_installed_and_unloads_between(tmp_
     assert runs[0].conditions["ollama_version"] == "9.9.9"
     assert runs[0].conditions["unloaded_before_run"] == ["something"]
     assert runs[0].conditions["context_length_seen"] == 4096
+    assert "power_source_at_end" in runs[0].conditions
     assert len(list((tmp_path / "out").glob("*.json"))) == 2
 
 

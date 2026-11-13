@@ -442,7 +442,9 @@ momus/
       splits them, sends each piece to the local model, cleans the output,
       passes it to Argus
 - [ ] (Docstring prompt `src/momus/prompts/clio.txt` and inline-comment
-      prompt `clio_comments.txt` built 2026-11-12, both first versions, untuned.)
+      prompt `clio_comments.txt` built 2026-11-12, rewritten 2026-11-13 after three
+      rounds on the five samples with the 1.5B and the 7B; see the quality item
+      below.)
       Prompt in English, kept
       in a **separate, easily editable file**. Intent:
       "Add concise docstrings and comments explaining WHY, not what. Do not change
@@ -467,6 +469,23 @@ momus/
       `report_lines`, `text_tools`); `report_lines.py` already has docstrings
       and comments written by hand, to test the ownership rule. The comparison
       itself has **not been run**
+- [x] **Output quality, first pass (2026-11-13)** — `src/momus/quality.py`,
+      deterministic rules applied to what the model wrote, at no token cost:
+      docstrings are tidied (one spelling for `Args`/`Returns`/`Raises`, entries
+      indented, empty or "None" sections and lists of methods removed, ragged
+      paragraphs joined, a summary line split off, every line wrapped to 79
+      columns); comments that narrate or repeat the statement are dropped, at
+      most 3 are kept per function, and any text copied from Momus's own
+      instructions is rejected. Measured on the five samples, one run per round,
+      **not benchmark data** (power source and load changed between rounds):
+      the 1.5B went from 29 comments inserted to 3, of 69 it proposed in the
+      last round; the 7B from 2 to 1. Docstrings stayed at 30 inserted for both,
+      with no line over 79 columns. **What the rules cannot do:** judge truth.
+      Both models still state things the code does not do (an invented
+      `TypeError`, an argument that does not exist), the 1.5B far more often.
+      That is the reviewer's job (§10). A lesson recorded in `WORKLOG.md`:
+      examples in the prompt were copied into the code by the 1.5B, so the
+      prompts carry no examples
 - [x] Output mode decided 2026-11-11 (§2): **docstring-only**. The model
       returns only the docstring text; Momus finds the right place with `ast`
       line numbers and inserts it itself. Reason on this CPU: generation speed

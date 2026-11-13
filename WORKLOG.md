@@ -3,6 +3,95 @@
 Tests run, choices made and why, newest first. Maintained by the `work-log`
 skill. User-facing changes are summarized in [CHANGELOG.md](CHANGELOG.md).
 
+## 2026-11-13 — Clio output quality, first pass (plan §9)
+
+**Changed**
+- `src/momus/quality.py` (new): `polish_docstring()`, `comment_problem()`,
+  `copied_from_instructions()`, `is_placeholder()`
+- `src/momus/clio.py`: docstrings pass through the polish and are wrapped to 79
+  columns; comments are judged against the statement they sit above; at most
+  `MAX_COMMENTS = 3` per function; text copied from the instructions is
+  rejected; a method is shown inside a `class X:` header
+- `src/momus/prompts/clio.txt`, `clio_comments.txt`: rewritten, no examples
+- `src/momus/bench.py`: `power_source_at_end`
+- `tests/test_quality.py` (new), more tests in `tests/test_clio.py`,
+  `tests/test_bench.py`
+- `plan-Momus.md` §9, `CHANGELOG.md`
+
+**Tests**
+- Baseline before this work: 258 passed, 1 deselected. After: `.venv/bin/pytest`
+  — 335 passed, 1 deselected (integration). Fake backend only
+- Mutation checks by hand in three batches (comment limit, section indent,
+  wrapping; copy check in the rules and in Clio, methods list, bare
+  instructions, paragraph joining): every deliberate bug was caught
+- Three real rounds, `momus bench`, `qwen2.5-coder:1.5b` and `qwen2.5-coder:7b`
+  on the five samples, mode `both`, 48 requests per model per round, no failed
+  request, every insertion accepted by Argus in all rounds:
+
+  | round | prompts and rules | 1.5B docstrings / comments in | 7B docstrings / comments in |
+  |---|---|---|---|
+  | 1 (2026-11-12) | first prompts, no rules | 30 / 29 | 30 / 2 |
+  | 2 | prompts **with examples**, first rules | 30 / 24 (29 dropped) | 30 / 3 |
+  | 3 | prompts without examples, more rules | 30 / 17 (52 dropped) | 30 / 1 (5 dropped) |
+  | 3, replayed through the final rules | same replies, no new model call | 30 / 3 (66 dropped) | 30 / 1 (5 dropped) |
+
+- The last row re-used the recorded replies of round 3 (the prompts had not
+  changed), so it tests the rules, not the models
+- No docstring line was over 79 columns in rounds 2 and 3. Round 1 had many,
+  seen by reading; the count was not taken
+- **Not benchmark data.** Round 1 ran on battery, round 2 started on mains with
+  the machine just rebooted (load 3 to 12), round 3 on battery then mains. The
+  seconds and tok/s of these runs are not comparable and are not reported
+- The raw files of round 1 are lost: they were in `/tmp`, which was cleared by a
+  restart. Its counts above come from the run's printed summary. Rounds 2 and 3
+  are in `~/.cache/momus-quality/` on the maintainer's machine, outside the repo
+- Not run: the 16B and 30B; `examples/retry.py`; the reviewer on any of this
+  output; Python versions other than 3.12.3
+
+**A regression I caused, and its fix**
+- Round 2's prompts had an example docstring and example comments. The 1.5B
+  copied them into the code: "Sort first: the median needs ordered values."
+  inside `Inventory.remove`, the example paragraph about retries inside
+  `low_stock` and `names`, and the context sentence "This method belongs to the
+  class Inventory." inside a docstring. False text, invisible to Argus because
+  the code was unchanged. Found by reading the diffs, not by a count
+- Fix: no examples in the prompts; a method's class is shown as code, not said
+  in a sentence; and `copied_from_instructions()` rejects any sentence of four
+  words or more that appears in the prompt before the code. In round 3 that
+  rule fired on no docstring
+
+**What is still wrong (read from the diffs)**
+- Truth. The 1.5B invents errors (`TypeError` for non-numbers, "raises
+  ValueError if there are no items") and the 7B does it sometimes (a
+  `low_stock_limit` argument on `low_stock`, a `TypeError` in `__init__`). No
+  rule here can know that; the reviewer of §10 can
+- The 1.5B's docstrings are still long and open with "The `mean` function...";
+  the 7B's are short and mostly start with a verb
+- The 3 comments the 1.5B keeps are weak reasons, one of them wrong ("a single
+  value cannot be averaged with itself")
+- A docstring is still inserted below a comment that already sits under the
+  `def` line
+
+**Decisions**
+- Rules are heuristics that prefer dropping a good comment to keeping a bad one
+  — assistant's choice, in line with "Momus would rather add nothing than add
+  noise". The patterns are English-only
+- Stopped adding patterns after the "narrating verb" rule: each new one caught
+  less, and what remains needs judgement, not pattern matching
+- The rules run before the comment limit, so a dropped comment does not use up
+  one of the 3 places
+- Docstring text is only re-spaced, re-wrapped and pruned of empty or
+  code-duplicating sections; no word is rewritten
+- Model choice is not decided here. On these files the 7B's text is clearly
+  better and the 1.5B's inline comments are almost all noise, but that is two
+  models on five files, and the comparison of all four is deferred
+
+**Open / next**
+- Whether inline comments should be on by default, given how few survive
+- Running the reviewer on Clio's output, which is where the false statements
+  would be caught
+- Uncommitted: everything since the maintainer's last commit
+
 ## 2026-11-12 — Review stage, `momus review` (plan §10)
 
 **Changed**

@@ -160,3 +160,131 @@ def test_a_dropped_comment_is_reported_as_style_and_does_not_use_up_the_limit():
     assert by_name["retry S4"].cause == "style"
     assert by_name["retry S5"].status == "added"
     assert "# Keep the last error" in result.text and "This checks" not in result.text
+
+
+# --- Text copied from the instructions -------------------------------------
+
+INSTRUCTIONS = (
+    "You write docstrings.\n- Start with a verb.\n\n"
+    "Document the class as a whole; its methods are documented separately.\n\n"
+    "This method belongs to the class Inventory.\n"
+)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Add an item.\n\nThis method belongs to the class Inventory.",
+        "its methods are documented separately",
+        "Add an item. THIS METHOD   belongs to the class `Inventory`!",
+    ],
+)
+def test_a_sentence_lifted_from_the_instructions_is_detected(text):
+    from momus.quality import copied_from_instructions
+
+    assert copied_from_instructions(text, INSTRUCTIONS)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Add an item to the inventory.",
+        "With a verb.",  # three words: too short to prove anything
+        "This method adds an item to the class.",
+    ],
+)
+def test_ordinary_text_is_not_mistaken_for_a_copy(text):
+    from momus.quality import copied_from_instructions
+
+    assert not copied_from_instructions(text, INSTRUCTIONS)
+
+
+def test_docstring_copied_from_the_prompt_is_rejected():
+    source = "class Box:\n    x = 1\n"
+    echo = "DOCSTRING:\nA box.\n\nDocument the class as a whole; its methods are documented separately."
+    result = clio.comment_source(source, FakeBackend([echo]), "docstrings")
+    assert result.text == source
+    assert (result.outcomes[0].status, result.outcomes[0].cause) == ("rejected", "reply")
+    assert "copied from the instructions" in result.outcomes[0].reason
+
+
+def test_comment_copied_from_the_prompt_is_rejected():
+    source = "class Box:\n" + "".join("    " + line for line in RETRY.splitlines(keepends=True))
+    echo = "COMMENTS:\nS1: This method belongs to the class Box."
+    result = clio.comment_source(source, FakeBackend([echo]), "comments")
+    assert result.text == source
+    assert (result.outcomes[0].status, result.outcomes[0].cause) == ("rejected", "reply")
+
+
+def test_a_method_is_shown_inside_its_class_instead_of_described_in_a_sentence():
+    backend = FakeBackend(["DOCSTRING:\nGrow the box."])
+    clio.comment_source("class Box:\n    def grow(self):\n        self.n = 1\n", backend, "docstrings")
+    method_prompt = backend.prompts[1]
+    assert "class Box:\n    ...\n\n    def grow(self):\n        self.n = 1" in method_prompt
+    assert "belongs to the class" not in method_prompt
+
+
+# --- More docstring tidying ------------------------------------------------
+
+
+def test_ragged_paragraph_lines_are_joined():
+    text = "Add or update an item.\n\nRaises a ValueError if the quantity is not positive. If the item already exists,\nupdates its quantity."
+    assert polish_docstring(text) == (
+        "Add or update an item.\n\n"
+        "Raises a ValueError if the quantity is not positive. If the item already exists, updates its quantity."
+    )
+
+
+def test_lists_sections_and_inline_headings_are_not_joined():
+    text = "Do it.\n\n- first\n- second\n\nArgs:\n    a: one\n    b: two\n\nIt has a note.\nReturns: the value."
+    assert polish_docstring(text) == text
+
+
+def test_a_list_of_methods_is_removed_from_a_class_docstring():
+    text = (
+        "Manage a collection of items.\n\nMethods:\n- `add(name)`: Adds an item.\n- `remove(name)`: Removes it.\n\n"
+        "Static method:\n- `format_price(amount)`: Formats a price.\n\nArgs:\n- limit: The low stock limit."
+    )
+    assert polish_docstring(text) == "Manage a collection of items.\n\nArgs:\n    limit: The low stock limit."
+
+
+# --- Bare instructions as comments -----------------------------------------
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Initialize the range of values.",
+        "Calculate the span between the minimum and maximum values.",
+        "Check if all values are equal to each other, returning a list of zeros if true.",
+        "Adds a suffix with the worst severity if it exists.",
+        "The mean is calculated by dividing the sum of all values by their number.",
+        "The quantity of the item is decremented by the specified quantity.",
+        "The loop iterates over each line in the input list.",
+        "A conditional statement checks if there is a worst severity.",
+        "The wrapper returns the original function with an extra attribute.",
+    ],
+)
+def test_an_instruction_with_no_reason_is_dropped(text):
+    assert comment_problem(text, "unrelated = code()")
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Sort a copy to keep the caller's list intact.",
+        "Check the bounds first: max() and min() would silently swap them.",
+        "Use a set because the same word can appear many times.",
+        "The running sum is set to 0 because the first window has no values yet.",
+        "Returns early so an empty list never reaches the division.",
+    ],
+)
+def test_an_instruction_that_gives_its_reason_is_kept(text):
+    assert comment_problem(text, "unrelated = code()") is None
+
+
+def test_a_heading_left_dangling_at_the_end_is_removed():
+    assert polish_docstring("Set up the inventory.\n\nArgs:\n    limit: The limit.\n\nExample usage:") == (
+        "Set up the inventory.\n\nArgs:\n    limit: The limit."
+    )
+    assert polish_docstring("Returns the total:") == "Returns the total:"  # a one-line docstring is not a heading

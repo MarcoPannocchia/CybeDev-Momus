@@ -27,7 +27,12 @@ from pathlib import Path
 from momus import argus
 from momus.backends import Backend, BackendError
 from momus.cleaning import clean_output, strip_reasoning
-from momus.quality import comment_problem, is_placeholder, polish_docstring
+from momus.quality import (
+    comment_problem,
+    copied_from_instructions,
+    is_placeholder,
+    polish_docstring,
+)
 from momus.splitter import split_source
 
 ADDED = "added"
@@ -397,7 +402,15 @@ def _targets(source: str, lines: list[str], want_comments: bool):
         else:
             index, indent = slot
             code = _code_of(node, piece_lines)
-            doc_targets.append(_Target(name, kind, code, context, index, indent))
+            doc_context = context
+            if kind == "method":
+                # Show the class as code around the method instead of saying it
+                # in a sentence: small models copy such sentences into the
+                # docstring.
+                owner = name.split(".", 1)[0]
+                code = f"class {owner}:\n    ...\n\n{textwrap.indent(code, '    ')}"
+                doc_context = ""
+            doc_targets.append(_Target(name, kind, code, doc_context, index, indent))
         if not want_comments or kind == "class":
             return
         eligible = []
@@ -494,6 +507,11 @@ def _passes_guard(original: str, new: str, inserted: list[int]) -> str | None:
     return None
 
 
+def _instructions(prompt: str) -> str:
+    """Return the part of a prompt that comes before the code."""
+    return prompt.rsplit("\nCode:\n", 1)[0]
+
+
 def _cause_of(error: Exception) -> str:
     """Name where a failure came from: the server, or the shape of the reply."""
     return "backend" if isinstance(error, BackendError) else "reply"
@@ -558,6 +576,8 @@ def comment_source(source: str, backend: Backend, mode: str = "both") -> ClioRes
         prompt = build_prompt(target.kind, target.code, target.context)
         try:
             text = parse_reply(backend.complete(prompt))
+            if copied_from_instructions(text, _instructions(prompt)):
+                raise ClioError("the text is copied from the instructions")
         except (BackendError, ClioError) as exc:
             outcomes.append(
                 Outcome(target.name, REJECTED, str(exc), "docstring", _cause_of(exc))
@@ -602,6 +622,11 @@ def comment_source(source: str, backend: Backend, mode: str = "both") -> ClioRes
                 )
                 continue
             index, indent, statement = target.slots[number]
+            if copied_from_instructions(text, _instructions(prompt)):
+                outcomes.append(
+                    Outcome(name, REJECTED, "copied from the instructions", "comment", "reply")
+                )
+                continue
             problem = comment_problem(text, statement)
             if problem:
                 outcomes.append(Outcome(name, REJECTED, problem, "comment", "style"))

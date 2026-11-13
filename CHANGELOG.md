@@ -8,6 +8,14 @@ are in [WORKLOG.md](WORKLOG.md).
 
 ### Added
 
+- Quality rules (`momus.quality`) applied to everything Clio inserts, with no
+  model call: tidier docstrings (consistent `Args`/`Returns`/`Raises`
+  sections, no empty or "None" sections, no list of methods, lines wrapped to
+  79 columns, a summary line), and inline comments dropped when they only
+  describe or repeat the code. At most 3 comments per function
+- Text copied from Momus's own instructions is rejected, for docstrings and
+  comments alike
+- `momus bench` also records the power source at the end of each model's run
 - `momus review FILE... [--base REF]`: a strong model reads the comments and
   docstrings added to the files since `REF` (default `HEAD`) and prints
   `file:line: problem` for each false, redundant or inconsistent one. Changes
@@ -73,6 +81,10 @@ are in [WORKLOG.md](WORKLOG.md).
 
 ### Changed
 
+- Both Clio prompts rewritten: a fixed docstring style, comments only where a
+  reason is hidden, and no examples (a small model copied them into the code)
+- A method is shown to the model inside a `class X:` header instead of being
+  described in a sentence
 - `momus.argus.split_lines()` is now public: the splitter uses the same
   line splitting as the guard
 - Chat explanations to the maintainer are now in English (`CLAUDE.md`,

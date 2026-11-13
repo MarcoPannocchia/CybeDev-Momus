@@ -420,6 +420,8 @@ def run_comparison(
             if unload:
                 conditions["unloaded_before_run"] = ollama.unload_all()
             run = run_model(model, make_backend(replace(settings, model=model)), paths, mode, conditions)
+            # Sampled again because a run is long enough for a cable to be pulled.
+            conditions["power_source_at_end"] = _power_source()
             loaded = [m for m in ollama.loaded() if m.get("name") == model]
             conditions["context_length_seen"] = (loaded[0].get("context_length") if loaded else None) or "unknown"
         json_path, md_path = write_run(run, out_dir)
