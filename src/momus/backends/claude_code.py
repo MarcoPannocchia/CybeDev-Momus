@@ -82,6 +82,13 @@ class ClaudeCodeBackend:
                 raise BackendError(f"cannot run {self.command}: {exc}") from exc
         if done.returncode != 0:
             detail = (done.stderr or done.stdout or "").strip()[:300]
+            try:
+                # On an API error the reason is in the JSON, far past 300 characters.
+                body = json.loads(done.stdout)
+                if body["is_error"]:
+                    detail = str(body["result"])[:300]
+            except (ValueError, KeyError, TypeError):
+                pass
             raise BackendError(f"{self.command} exited with status {done.returncode}: {detail}")
         try:
             body = json.loads(done.stdout or "")

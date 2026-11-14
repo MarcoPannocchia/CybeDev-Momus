@@ -377,6 +377,7 @@ def test_claude_code_reports_the_tokens_the_call_used():
         (Runner(raises=subprocess.TimeoutExpired("claude", 1)), "did not answer"),
         (Runner(raises=PermissionError("no")), "cannot run"),
         (Runner(returncode=2, stderr="not logged in"), "status 2: not logged in"),
+        (Runner(returncode=1, stdout=claude_json(result="monthly spend limit", is_error=True)), "status 1: monthly spend limit"),
         (Runner(stdout="plain text, not JSON"), "did not return JSON"),
         (Runner(stdout="[1, 2]"), "unexpected reply"),
         (Runner(stdout=claude_json(result="rate limited", is_error=True)), "reported an error: rate limited"),
