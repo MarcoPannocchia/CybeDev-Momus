@@ -3,6 +3,79 @@
 Tests run, choices made and why, newest first. Maintained by the `work-log`
 skill. User-facing changes are summarized in [CHANGELOG.md](CHANGELOG.md).
 
+## 2026-11-14 — Reviewer model by file size, `momus review --drop`; state at the end of the session (plan §10)
+
+**Where things stand**
+- Everything is committed (last commit `33e24ea`); the working tree was clean
+  before this entry was written. `.venv/bin/pytest`: 366 passed, 1 deselected
+- The pipeline runs end to end from the command line: `momus comment`
+  (docstrings by default, `--mode both` for inline comments, `--write` to
+  write), `momus review` (`--base`, `--drop`), `momus bench`. `momus guard` is
+  still a placeholder
+- To continue: `plan-Momus.md` §15, "Resume here"
+
+**Changed**
+- `src/momus/critic.py`: `review_routed()`, `drop_flagged()`; `Finding` gained
+  `end_line`
+- `src/momus/config.py`: `ReviewSettings.model` now defaults to `sonnet`; new
+  `small_model` (`haiku`) and `small_file_lines` (200);
+  `build_small_review_backend()`
+- `src/momus/cli.py`: `momus review --drop`; routing wired in
+- `src/momus/backends/claude_code.py`: on a failed call, the reason Claude Code
+  gives in its JSON is shown (it was cut off at 300 characters before)
+- `momus.toml`: the `[review]` table shows the three settings
+- `tests/test_critic.py`: routing, drop and error-reason tests
+- `plan-Momus.md` §0, §10, §15; `CHANGELOG.md`
+
+**Tests**
+- Baseline before changes: 350 passed, 1 deselected. After: 366 passed, 1
+  deselected (integration). Fake backends and a fake process runner only
+- Mutation check by hand, four deliberate bugs (routing inverted, drop leaving
+  the last line of a comment, drop not checking a finding against its comment,
+  files rewritten without `--drop`): each caught
+- **Real run of `momus review --drop`: failed, not a pass.** Temporary git
+  repository, a 9-line file with a false docstring, a redundant comment and a
+  good comment. `claude` exited with status 1: "You've hit your monthly spend
+  limit" (HTTP 429; the message gave a reset time of 1:20am Europe/Rome for the
+  5-hour limit). Momus printed the failure, wrote nothing (the file still had
+  all three comments) and exited 1. So the failure path is confirmed for real;
+  the success path of `--drop` and the routing have **never** run against the
+  real reviewer
+- Not run: `--drop` with a real reviewer answering; routing with real models;
+  any file over 200 lines; the `anthropic` backend against the real API;
+  Python versions other than 3.12.3
+
+**Decisions**
+- Sonnet for long files, Haiku for short ones — decided by the maintainer. In
+  the experiment of the entry below Haiku caught the same false docstrings as
+  Sonnet, on files under 50 lines
+- The threshold of 200 lines, and counting lines of the new file — assistant's
+  choice, a guess with no data behind it; it is a setting
+- Routing is off when `small_model` is empty or equal to `model`
+- `--drop` — proposed by the assistant, accepted by the maintainer. It removes
+  every flagged comment, whatever the reviewer's reason (false, redundant or
+  inconsistent). Rewriting a flagged docstring by asking Clio again was the
+  alternative and was not chosen: more calls, and it can be wrong again
+- A dropped file is checked twice over: `find_comments()` on the result runs
+  both Argus checks, and the comments left must be exactly the ones not
+  flagged. A finding whose line or text does not match an added comment stops
+  the whole file
+- With the `anthropic` backend the defaults `sonnet` and `haiku` are not valid
+  model names; full names are needed there. Said in `momus.toml`, not enforced
+  in code
+
+**Known limits**
+- No ownership record yet (§16.7): review, and so `--drop`, covers every
+  comment added since the git baseline, including the maintainer's own
+- A new, untracked file has no baseline and cannot be reviewed
+- The reviewer was measured on 60 docstrings from five small files written by
+  the assistant, against the assistant's own answer key
+
+**Open / next**
+- The real `--drop` run, once the spend limit has reset (recipe in the plan)
+- The list under "Resume here" in `plan-Momus.md` §15
+- Uncommitted: `plan-Momus.md`, `CHANGELOG.md`, `WORKLOG.md` (this entry)
+
 ## 2026-11-14 — The reviewer on Clio's real docstrings (plan §10)
 
 **Changed**

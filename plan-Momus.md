@@ -15,10 +15,13 @@ criterion, and anything not yet verified is marked as such.
 - `[ ]` = to do, or done-but-unverified (say which in the line)
 - Each section is a project area or a decision already made in chat
 - Dates are ISO (`YYYY-MM-DD`). Decisions carry the date they were made
-- Reference state for the latest update of this plan: **pre-v0.1.0, §5–§8
-  built (skeleton, local backend, Argus, cleaning, splitter), plus the Clio
-  docstring slice (§9), the critic (§10) and the benchmark engine (§11); the
-  official benchmark run is deferred**. Last updated **2026-11-13**
+- Reference state for the latest update of this plan: **pre-v0.1.0. The core
+  pipeline works end to end from the command line: `momus comment` (Clio,
+  docstrings by default), Argus guarding every insertion, `momus review` (the
+  critic, with `--drop`) and `momus bench` (engine only). 366 tests green. The
+  official benchmark run is deferred; the settings app and daemon (§16) are not
+  started**. Last updated **2026-11-14**. **To pick the work up again, read
+  "Resume here" at the top of §15, then the newest entry of `WORKLOG.md`**
 - Language rules: this plan, all code, comments, docstrings, commit messages
   and the README are in **English**. Explanations to the maintainer in chat are
   also in English
@@ -622,8 +625,29 @@ momus/
       docstrings took 3 requests and about 14 600 input and 1 500 output
       tokens (7B output, Sonnet). One reviewer, one answer key written by the
       assistant, five small files: **an encouraging first result, not a
-      measured accuracy**. What to do with a finding (remove the docstring,
-      ask Clio again, only report) is **not decided**
+      measured accuracy**. What to do with a finding was decided the same day,
+      see the next two items
+- [x] **Reviewer model by file size** — decided 2026-11-14 by the maintainer:
+      a cheaper model for short files, a stronger one for long files. Built:
+      `[review]` has `model` (default `sonnet`), `small_model` (default
+      `haiku`) and `small_file_lines` (default 200); a file with at most that
+      many lines goes to the small model. **The 200 is a first guess, not
+      measured.** All five sample files are under 50 lines, so the experiment
+      above says nothing about long files. Tested with fake backends only;
+      **never run with the real reviewer** (see below)
+- [ ] **`momus review --drop`** — decided 2026-11-14 by the maintainer, on the
+      assistant's proposal: an opt-in that removes the comments the reviewer
+      flagged. A file is rewritten only if the result is still the baseline
+      plus comments and docstrings (both Argus checks) and holds exactly the
+      comments that were not flagged; otherwise nothing is written. Without
+      `--drop` the command only reports. Built and tested with fake backends
+      (366 tests green). **Not ticked: the one real run failed** because the
+      Claude account had reached its monthly spend limit (HTTP 429); Momus
+      left the file untouched and exited 1, which is the intended behaviour,
+      but a successful real run has not been seen. Known limit: every comment
+      added since the git baseline is reviewed, so a comment the maintainer
+      wrote and the reviewer flags is removed too (no ownership record yet,
+      §16.7); the `--help` text says so
 - **Done when:** `momus review` works with at least one real backend and with
   the fake one in tests — met 2026-11-12: the fake in the suite, and `claude -p`
   once for real on a temporary repository with three planted comments (it
@@ -741,6 +765,36 @@ momus/
 > Orders work across phases, given the current state (nothing built yet, models
 > already installed, slow connection). Re-evaluate at the recheck checkpoint
 > rather than assuming it is still right.
+
+**Resume here (state at the end of 2026-11-14)**
+
+- Everything is committed; `.venv/bin/pytest` gives 366 passed, 1 deselected
+- **First thing to do:** run `momus review --drop` for real, once the Claude
+  account's spend limit has reset. Recipe: a temporary git repository, a small
+  file committed, then a false docstring, a redundant comment and a good
+  comment added; run `momus review FILE --drop --config <repo>/momus.toml`;
+  expect the false and the redundant one removed, the good one kept, and
+  `argus.compare_code` against the commit accepted. Then tick the `--drop`
+  item of §10 and say in `WORKLOG.md` which model handled the file
+- Then, in the maintainer's order of priority (docstrings first, inline
+  comments later):
+  - `momus guard` is still a placeholder: Argus has no command of its own
+  - Clio only takes files named on the command line, not "the files changed
+    in `git diff`" (§9)
+  - module docstrings and nested functions are not covered (§9)
+  - `momus bench` does not call the reviewer, so its "flagged by the
+    reviewer" column is empty (§11)
+  - the `anthropic` review backend has never been run against the real API
+  - §7's "the maintainer can explain the logic in plain words" is open
+  - §12 README, logo, publication: best done after the points above, so its
+    examples show reviewed output
+- Deferred by the maintainer: the four-model benchmark (§11) and inline
+  comments as a default. Not started: the settings app and the daemon (§16)
+- Traps already met, so they are not met again: `claude -p` without the lean
+  flags costs about 186 000 input tokens per call on this machine; examples
+  in a prompt get copied into the code by the 1.5B; results kept in `/tmp`
+  are lost on restart (the recorded model replies are in
+  `~/.cache/momus-quality/`, outside the repository)
 
 **Order**
 

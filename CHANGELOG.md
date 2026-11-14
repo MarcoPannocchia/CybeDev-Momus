@@ -8,6 +8,13 @@ are in [WORKLOG.md](WORKLOG.md).
 
 ### Added
 
+- `momus review --drop`: removes the comments the reviewer flagged. A file is
+  written only if the result is still the original code plus comments; without
+  the option the command only reports
+- Reviewer model by file size: `[review]` in `momus.toml` gained `small_model`
+  and `small_file_lines`; short files go to the cheaper model
+- When Claude Code reports an error (for example a spend limit), `momus
+  review` shows that reason
 - The Claude Code review backend reports the tokens each call used
   (`last_usage`, cached tokens included)
 - When the reviewer is shown only part of a long function or class, the code
@@ -97,6 +104,8 @@ are in [WORKLOG.md](WORKLOG.md).
 
 ### Changed
 
+- The review model now defaults to `sonnet` for long files and `haiku` for
+  files of at most 200 lines, instead of the account's default model
 - `momus comment` and `momus bench` now generate **docstrings only** by
   default. Inline comments are still available with `--mode both` or
   `--mode comments`
