@@ -600,7 +600,13 @@ momus/
         server only; **never run against the real API**
   - [x] `claude_code.py` — non-interactive `claude -p` call, built 2026-11-12:
         tools off, no saved session, started from an empty folder. Run once for
-        real (see below)
+        real (see below). **Corrected 2026-11-14:** as first built, every call
+        carried Claude Code's whole system prompt and all connected tool
+        servers, about 186 000 input tokens for a one-line request (measured).
+        It now also passes `--strict-mcp-config`, `--disable-slash-commands`
+        and its own short `--system-prompt`, which brought the same request to
+        about 1 300 tokens, and it reads the real token counts from
+        `--output-format json`
   - [x] Backend chosen in `momus.toml` — `[review]` table
 - [ ] Work in batches (e.g. every 5–10 touched files), not after every edit —
       comments are packed into requests of at most `max_items` (default 10).
@@ -608,6 +614,16 @@ momus/
       (§16.7) and is not built
 - [x] A fake backend for tests so the test suite never calls a real API — the
       existing `FakeBackend`, plus a fake process runner and a stub HTTP server
+- [x] **First run on Clio's real output (2026-11-14).** The 60 docstrings the
+      1.5B and the 7B wrote for the five samples (30 each) were reviewed with
+      `claude -p`. Against an answer key made by reading every docstring first,
+      the reviewer caught all the clearly false ones: 7 of 7 for the 7B and 12
+      of 12 for the 1.5B, with Sonnet and with Haiku alike. Reviewing 30
+      docstrings took 3 requests and about 14 600 input and 1 500 output
+      tokens (7B output, Sonnet). One reviewer, one answer key written by the
+      assistant, five small files: **an encouraging first result, not a
+      measured accuracy**. What to do with a finding (remove the docstring,
+      ask Clio again, only report) is **not decided**
 - **Done when:** `momus review` works with at least one real backend and with
   the fake one in tests — met 2026-11-12: the fake in the suite, and `claude -p`
   once for real on a temporary repository with three planted comments (it

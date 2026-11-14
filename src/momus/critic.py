@@ -186,6 +186,30 @@ def _render(new_lines: list[str], first: int, last: int, added: set[int]) -> str
     )
 
 
+def _mark_omissions(code, new_lines, added, owner, span, first, last) -> str:
+    """Say which lines of a definition were left out of ``code``.
+
+    Without this the reviewer takes the part it sees for the whole, and
+    reports a method as nonexistent because it was cut off. For a class, the
+    signatures of the methods that were cut are listed, so a docstring about
+    the class can still be checked against what the class offers.
+    """
+    start, end = span
+    if first > start:
+        code = f"      ... lines {start}-{first - 1} of this definition are not shown\n{code}"
+    if last < end:
+        code += f"\n      ... lines {last + 1}-{end} of this definition are not shown"
+        signatures = []
+        if isinstance(owner, ast.ClassDef):
+            for child in owner.body:
+                if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)) and _first_line(child) > last:
+                    signature_end = max(_first_line(child), child.body[0].lineno - 1)
+                    signatures.append(_render(new_lines, _first_line(child), signature_end, added))
+        if signatures:
+            code += "; the signatures of its methods there:\n" + "\n".join(signatures)
+    return code
+
+
 def build_groups(path: str, original: str, new: str) -> list[Group]:
     """Pair each added comment with the code around it.
 
@@ -204,6 +228,7 @@ def build_groups(path: str, original: str, new: str) -> list[Group]:
     tree = ast.parse(new)
 
     spans: dict[tuple[int, int] | tuple[str, int], list[Comment]] = {}
+    owners: dict = {}
     for comment in comments:
         owner = _enclosing(tree, comment.line)
         if owner is None:
@@ -211,6 +236,7 @@ def build_groups(path: str, original: str, new: str) -> list[Group]:
             key = ("module", comment.line)
         else:
             key = (_first_line(owner), owner.end_lineno)
+            owners[key] = owner
         spans.setdefault(key, []).append(comment)
 
     groups = []
@@ -223,7 +249,10 @@ def build_groups(path: str, original: str, new: str) -> list[Group]:
             if last - first + 1 > MAX_CONTEXT_LINES:
                 first = max(first, members[0].line - CONTEXT_MARGIN)
                 last = min(last, members[-1].end_line + CONTEXT_MARGIN)
-        groups.append(Group(path, _render(new_lines, first, last, added), tuple(members)))
+        code = _render(new_lines, first, last, added)
+        if key[0] != "module":
+            code = _mark_omissions(code, new_lines, added, owners[key], key, first, last)
+        groups.append(Group(path, code, tuple(members)))
     return sorted(groups, key=lambda group: group.comments[0].line)
 
 

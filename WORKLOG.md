@@ -3,6 +3,100 @@
 Tests run, choices made and why, newest first. Maintained by the `work-log`
 skill. User-facing changes are summarized in [CHANGELOG.md](CHANGELOG.md).
 
+## 2026-11-14 — The reviewer on Clio's real docstrings (plan §10)
+
+**Changed**
+- `src/momus/backends/claude_code.py`: lean flags (`--strict-mcp-config`,
+  `--disable-slash-commands`, own `--system-prompt`), `--output-format json`,
+  `last_usage`; errors reported by Claude Code become `BackendError`
+- `src/momus/critic.py`: `_mark_omissions()`; `src/momus/prompts/critic.txt`:
+  a rule about code shown only in part
+- `src/momus/quality.py`: markdown bold removed, more empty entries recognised
+- `tests/test_critic.py`, `tests/test_quality.py`
+- `plan-Momus.md` §10, `CHANGELOG.md`
+
+**Tests**
+- Baseline before changes: 336 passed, 1 deselected. After: `.venv/bin/pytest`
+  — 350 passed, 1 deselected (integration). No real model or API in the suite
+- Mutation check by hand, five deliberate bugs (omissions not marked, tool
+  servers loaded again, default system prompt back, cached tokens left out of
+  the count, markdown bold kept): each caught
+- Real measurements of `claude -p` for the request "Reply with the single word
+  OK." (2026-11-14, Claude Code 2.1.323, this machine's configuration):
+
+  | how it was called | input tokens | model |
+  |---|---|---|
+  | as the backend did until today (`--tools ""` only) | 186 212 | the account default (Fable 5.2) |
+  | same, with `--model haiku` | 185 566 | Haiku |
+  | with the lean flags | 1 272 | Haiku |
+  | through the fixed `ClaudeCodeBackend` | 1 236 | Haiku |
+
+  The overhead depends on what the user has connected to Claude Code (many
+  tool servers here), so the 186 000 is this machine's number, not a constant
+- Review experiment. Input: the docstrings recorded on 2026-11-13 for the five
+  samples, rebuilt through the current rules by replaying the recorded replies
+  (30 docstrings per model; every prompt matched the recording). I read all 60
+  and wrote an answer key **before** running the reviewer: 7B, 7 clearly false
+  and 2 questionable; 1.5B, 12 clearly false and 4 questionable
+
+  | Clio model | reviewer | requests | findings | clear falses caught | input / output tokens |
+  |---|---|---|---|---|---|
+  | 7B | Sonnet | 3 | 11 | 7 of 7 | 14 306 / 1 660 |
+  | 7B | Haiku | 3 | 10 | 7 of 7 | 14 343 / 5 045 |
+  | 1.5B | Sonnet | 3 | 23 | 12 of 12 | 19 450 / 1 962 |
+  | 1.5B | Haiku | 3 | 19 | 12 of 12 | 19 485 / 8 939 |
+  | 7B, after the fixes below | Sonnet | 3 | 9 | 7 of 7 | 14 629 / 1 504 |
+  | 1.5B, after the fixes below | Sonnet | 3 | 21 | 12 of 12 | 19 597 / 1 903 |
+
+- Most findings outside my key were real problems I had marked too kindly (for
+  example `wrap` promising lines within the width when a long word exceeds it).
+  Two of Sonnet's findings on the 1.5B output were muddled sentences that
+  argued with themselves (`moving_average`, `truncate`); I did not count them
+  as correct
+- Limits of this result: one run per row; the answer key is mine and covers
+  falsehood only, not redundancy; five small files I wrote myself; the reviewer
+  was not tested on docstrings that are subtly wrong in larger code. It shows
+  the stage works on real output, not how accurate it is
+- Not run: the reviewer with the account's default model; the `anthropic`
+  backend against the real API; anything on the 16B or 30B; Python other than
+  3.12.3
+
+**Problems found by running it for real**
+- **Token overhead (mine).** I built and "verified" the Claude Code backend on
+  2026-11-12 without measuring what a call cost, and wrote in the worklog that
+  the token usage was not measured. It was about 186 000 input tokens per
+  request, which defeats the purpose of the project. Found only when I asked
+  the CLI for usage numbers. Fixed and now measured on every call
+- **A wrong finding caused by my code.** Sonnet reported that the `Inventory`
+  docstring "describes a `low_stock` method that does not exist in the code
+  shown". The method exists; the critic showed only the top of the class and did
+  not say so. Fixed: omitted lines are announced and the cut methods'
+  signatures are listed. In the second run that finding was gone
+- **A mistake while fixing it.** A one-off edit script opened
+  `prompts/critic.txt` for writing before reading it and emptied the file. Two
+  tests failed at once, I restored the file from `HEAD` (it had no other
+  change), and re-applied the edit with the read-then-write helper
+
+**Decisions**
+- Lean flags are always on, not configurable — assistant's choice: a text-only
+  review has no use for tools, skills or the agent's system prompt
+- `prompt_tokens` counts cache writes and reads as input, because leaving them
+  out is exactly how the 186 000 went unnoticed
+- For a class cut short, list method signatures and not bodies: enough to check
+  a docstring about what the class offers, at one line per method
+- The experiment used Sonnet and Haiku, chosen by the assistant to see whether
+  a cheaper reviewer is enough. `[review] model` in `momus.toml` is still empty,
+  which means the account's default model (the most expensive one here). Which
+  model to put there is the maintainer's decision
+
+**Open / next**
+- What Momus does with a finding: report only (today), remove the flagged
+  docstring, or ask Clio again
+- A default review model in `momus.toml`
+- `momus bench` does not call the reviewer yet, so the "flagged by the
+  reviewer" column of §11 is still empty
+- Uncommitted: all of the above
+
 ## 2026-11-13 — Docstrings by default, comments on request (plan §2, §9)
 
 **Changed**

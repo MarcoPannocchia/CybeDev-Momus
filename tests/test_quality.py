@@ -288,3 +288,16 @@ def test_a_heading_left_dangling_at_the_end_is_removed():
         "Set up the inventory.\n\nArgs:\n    limit: The limit."
     )
     assert polish_docstring("Returns the total:") == "Returns the total:"  # a one-line docstring is not a heading
+
+
+def test_markdown_bold_headings_and_empty_placeholders_are_cleaned():
+    text = "Cache results.\n\n**Args:**\n- `func`: What to cache.\n\n**Raises:**\n- No exceptions.\n\n**Example Usage:**"
+    assert polish_docstring(text) == "Cache results.\n\nArgs:\n    func: What to cache."
+
+
+@pytest.mark.parametrize(
+    "entry",
+    ["-", "No exceptions are raised by this method.", "It does not raise any exceptions.", "N/A"],
+)
+def test_more_ways_of_saying_nothing_are_dropped(entry):
+    assert polish_docstring(f"Do it.\n\nRaises:\n{entry}") == "Do it."

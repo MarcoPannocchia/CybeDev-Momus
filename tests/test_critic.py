@@ -308,10 +308,17 @@ def test_review_options_are_parsed():
 # --- Claude Code backend ---------------------------------------------------
 
 
+def claude_json(result="the reply", is_error=False, **usage) -> str:
+    """What ``claude -p --output-format json`` prints."""
+    counts = {"input_tokens": 2, "cache_creation_input_tokens": 1200, "cache_read_input_tokens": 70, "output_tokens": 9}
+    return json.dumps({"result": result, "is_error": is_error, "usage": {**counts, **usage}, "total_cost_usd": 0.01})
+
+
 class Runner:
     """A stand-in for ``subprocess.run`` that records how it was called."""
 
-    def __init__(self, stdout="the reply\n", returncode=0, stderr="", raises=None):
+    def __init__(self, stdout=None, returncode=0, stderr="", raises=None):
+        stdout = claude_json() if stdout is None else stdout
         self.result = subprocess.CompletedProcess([], returncode, stdout, stderr)
         self.raises = raises
         self.calls = []
@@ -323,22 +330,43 @@ class Runner:
         return self.result
 
 
-def test_claude_code_runs_print_mode_with_no_tools_and_the_prompt_on_stdin():
+def test_claude_code_runs_print_mode_with_the_prompt_on_stdin():
     runner = Runner()
     assert ClaudeCodeBackend(model="some-model", runner=runner).complete("question") == "the reply"
     (args, kwargs), = runner.calls
-    assert args[:2] == ["claude", "-p"] and "--no-session-persistence" in args
-    assert args[args.index("--tools") + 1] == ""  # an empty list turns every tool off
+    assert args[:2] == ["claude", "-p"]
     assert args[args.index("--model") + 1] == "some-model"
     assert kwargs["input"] == "question"
     assert Path(kwargs["cwd"]).name.startswith("momus-review-")  # not the project folder
     assert not Path(kwargs["cwd"]).exists()  # and cleaned up afterwards
 
 
+def test_claude_code_switches_off_everything_that_inflates_a_request():
+    # Without these, one request carried about 186 000 input tokens (measured
+    # 2026-11-14): the default system prompt, every tool server, every skill.
+    runner = Runner()
+    ClaudeCodeBackend(runner=runner).complete("q")
+    args = runner.calls[0][0]
+    assert args[args.index("--tools") + 1] == ""  # an empty list turns every built-in tool off
+    assert "--strict-mcp-config" in args and "--mcp-config" not in args  # no tool servers at all
+    assert "--disable-slash-commands" in args
+    assert "--no-session-persistence" in args
+    assert args[args.index("--system-prompt") + 1].startswith("You review code comments")
+    assert args[args.index("--output-format") + 1] == "json"
+
+
 def test_claude_code_without_a_model_leaves_the_choice_to_claude():
     runner = Runner()
     ClaudeCodeBackend(runner=runner).complete("q")
     assert "--model" not in runner.calls[0][0]
+
+
+def test_claude_code_reports_the_tokens_the_call_used():
+    backend = ClaudeCodeBackend(runner=Runner())
+    assert backend.last_usage is None
+    backend.complete("q")
+    # Cached tokens are input too: leaving them out would hide most of the cost.
+    assert backend.last_usage == {"prompt_tokens": 1272, "completion_tokens": 9, "cost_usd": 0.01}
 
 
 @pytest.mark.parametrize(
@@ -348,7 +376,10 @@ def test_claude_code_without_a_model_leaves_the_choice_to_claude():
         (Runner(raises=subprocess.TimeoutExpired("claude", 1)), "did not answer"),
         (Runner(raises=PermissionError("no")), "cannot run"),
         (Runner(returncode=2, stderr="not logged in"), "status 2: not logged in"),
-        (Runner(stdout="  \n"), "printed nothing"),
+        (Runner(stdout="plain text, not JSON"), "did not return JSON"),
+        (Runner(stdout="[1, 2]"), "unexpected reply"),
+        (Runner(stdout=claude_json(result="rate limited", is_error=True)), "reported an error: rate limited"),
+        (Runner(stdout=claude_json(result="  ")), "returned no text"),
     ],
 )
 def test_claude_code_failures_become_backend_errors(runner, message):
@@ -469,3 +500,35 @@ def test_the_right_backend_is_built_from_the_settings():
 
 def test_the_shipped_example_config_has_a_valid_review_table():
     assert load_review_settings("momus.toml").backend == "claude_code"
+
+
+# --- Code that is shown only in part ---------------------------------------
+
+
+def test_a_cut_class_says_what_was_left_out_and_lists_the_method_signatures():
+    body = "".join(f"    def method_{i}(self, value):\n        return value + {i}\n\n" for i in range(30))
+    original = "class Big:\n    limit = 5\n\n" + body
+    new = original.replace("class Big:\n", 'class Big:\n    """Hold thirty methods."""\n', 1)
+    (group,) = critic.build_groups("m.py", original, new)
+    assert "of this definition are not shown; the signatures of its methods there:" in group.code
+    assert "def method_29(self, value):" in group.code  # far below the window, still listed
+    assert "return value + 29" not in group.code  # but not its body
+    assert len(group.code.splitlines()) < 60
+
+
+def test_a_cut_function_says_which_lines_were_left_out_at_both_ends():
+    original = "def big():\n" + "".join(f"    x{i} = {i}\n" for i in range(100))
+    lines = original.splitlines(keepends=True)
+    new = "".join(lines[:50] + ["    # Why x49 is next.\n"] + lines[50:])
+    (group,) = critic.build_groups("m.py", original, new)
+    assert "... lines 1-38 of this definition are not shown" in group.code
+    assert "... lines 64-102 of this definition are not shown" in group.code
+
+
+def test_a_definition_shown_whole_has_no_omission_note():
+    assert "not shown" not in critic.build_groups("m.py", ORIGINAL, NEW)[0].code
+
+
+def test_the_prompt_tells_the_reviewer_not_to_report_what_it_cannot_see():
+    prompt = critic.build_batches(critic.build_groups("m.py", ORIGINAL, NEW))[0].prompt
+    assert "Never report something as missing" in prompt

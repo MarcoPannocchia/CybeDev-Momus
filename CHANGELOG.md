@@ -8,6 +8,11 @@ are in [WORKLOG.md](WORKLOG.md).
 
 ### Added
 
+- The Claude Code review backend reports the tokens each call used
+  (`last_usage`, cached tokens included)
+- When the reviewer is shown only part of a long function or class, the code
+  now says which lines were left out, and for a class lists the signatures of
+  the methods that were cut
 - Quality rules (`momus.quality`) applied to everything Clio inserts, with no
   model call: tidier docstrings (consistent `Args`/`Returns`/`Raises`
   sections, no empty or "None" sections, no list of methods, lines wrapped to
@@ -78,6 +83,17 @@ are in [WORKLOG.md](WORKLOG.md).
 - `deps-sync` skill: keeps `requirements.txt` and `requirements-dev.txt`
   matched to the real dependencies, for one-command install
 - `work-log` skill: keeps this changelog and `WORKLOG.md` up to date
+
+### Fixed
+
+- The Claude Code review backend sent about 186 000 input tokens with every
+  request, because `claude -p` loads its full system prompt and every
+  connected tool server by default. It now switches all of that off; the same
+  request is about 1 300 tokens
+- The reviewer no longer reports a method as nonexistent because it was in a
+  part of a long class that was not shown
+- Docstring tidying: markdown bold headings (`**Args:**`) and more ways of
+  saying nothing ("-", "No exceptions are raised by this method.") are handled
 
 ### Changed
 

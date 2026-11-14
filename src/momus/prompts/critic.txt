@@ -10,6 +10,9 @@ A comment is a problem if it is:
 Rules:
 - Judge each comment only against the code shown. A line marked "+" was added
   by the small model; all other lines are the author's.
+- Long code may be shown only in part. A line starting with "..." says which
+  lines were left out. Never report something as missing or nonexistent when
+  it could be in the lines that are not shown.
 - Report real problems only. A short, correct comment that explains a reason is
   fine. Do not rewrite comments, do not praise, do not summarize.
 - One short sentence per problem.

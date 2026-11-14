@@ -50,8 +50,9 @@ _BULLET = re.compile(r"^(\s*)[-*•]\s+")
 _BACKTICKED_NAME = re.compile(r"^(\s*)`([^`]+)`")
 # Entries that say nothing: "None", "No exceptions are raised", "self: ...".
 _VACUOUS = re.compile(
-    r"^(none|n/?a|nothing|no exceptions?( (are|is|will be))?( raised| thrown)?|"
-    r"does not (raise|return)( anything| any exceptions?)?)\.?$",
+    r"^([-—–]+|none|n/?a|nothing|"
+    r"no exceptions?( (are|is|will be))?( raised| thrown)?( by this (method|function|property|class))?|"
+    r"(it |this (method|function) )?does not (raise|return)( anything| any exceptions?)?)\.?$",
     re.IGNORECASE,
 )
 _SELF_ENTRY = re.compile(r"^(self|cls)\b[^:]*:", re.IGNORECASE)
@@ -107,6 +108,9 @@ def polish_docstring(text: str) -> str:
     the same line (``Returns: the value.``) is left alone, unless that text
     says nothing.
     """
+    # Docstrings are plain text: markdown bold around a heading ("**Args:**")
+    # would otherwise hide the heading from the rules below.
+    text = text.replace("**", "")
     out: list[str] = []
     section: str | None = None  # the heading we are inside, if any
     kind = ""  # "entries" (Args, Returns, ...) or "other" (Example, Note)

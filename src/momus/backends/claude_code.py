@@ -4,20 +4,38 @@ It runs ``claude -p`` once per prompt. It needs no API key and no extra Python
 dependency: it uses whatever login the ``claude`` command already has, so the
 calls count against that account.
 
-The command is started with every tool turned off (the reviewer only has to
-read text), with no saved session, and from an empty folder so that the
-instructions of whatever project Momus happens to be run in are not loaded
-into every review.
+By default ``claude -p`` loads everything an interactive session would: its
+long system prompt, every connected tool server, every skill. Measured on the
+maintainer's machine (2026-11-14), that was about 186 000 input tokens for a
+request whose own text was one line. The reviewer only reads text, so all of
+it is switched off here, which brought the same request down to about 1 300
+tokens. The command is also started from an empty folder, so the instructions
+of whatever project Momus runs in are not loaded either.
 """
 
+import json
 import subprocess
 import tempfile
 
 from momus.backends import BackendError
 
+# Replaces Claude Code's own system prompt, which is written for an agent with
+# tools and is thousands of tokens long.
+SYSTEM_PROMPT = "You review code comments. Follow the instructions in the message exactly."
+
+# Everything that makes a request bigger without helping a text-only review.
+LEAN_FLAGS = [
+    "--tools", "",  # no built-in tools
+    "--strict-mcp-config",  # no tool servers: none are passed, so none load
+    "--disable-slash-commands",  # no skills or commands
+    "--no-session-persistence",  # nothing saved to disk
+    "--system-prompt", SYSTEM_PROMPT,
+    "--output-format", "json",  # the reply plus the token counts
+]  # fmt: skip
+
 
 class ClaudeCodeBackend:
-    """Sends prompts to ``claude -p`` and returns what it prints."""
+    """Sends prompts to ``claude -p`` and returns the text of the reply."""
 
     def __init__(
         self,
@@ -31,15 +49,18 @@ class ClaudeCodeBackend:
         self.timeout = timeout
         # Injected so tests never start a real process.
         self._runner = runner
+        # Token counts of the last reply as Claude Code reported them (or None).
+        # ``prompt_tokens`` includes tokens written to or read from the cache.
+        self.last_usage: dict | None = None
 
     def complete(self, prompt: str) -> str:
         """Send ``prompt`` on standard input and return the reply text.
 
         Raises:
-            BackendError: if the command is missing, fails, times out, or
-                prints nothing.
+            BackendError: if the command is missing, fails, times out, reports
+                an error, or returns no text.
         """
-        args = [self.command, "-p", "--tools", "", "--no-session-persistence"]
+        args = [self.command, "-p", *LEAN_FLAGS]
         if self.model:
             args += ["--model", self.model]
         with tempfile.TemporaryDirectory(prefix="momus-review-") as neutral_folder:
@@ -62,7 +83,25 @@ class ClaudeCodeBackend:
         if done.returncode != 0:
             detail = (done.stderr or done.stdout or "").strip()[:300]
             raise BackendError(f"{self.command} exited with status {done.returncode}: {detail}")
-        reply = (done.stdout or "").strip()
-        if not reply:
-            raise BackendError(f"{self.command} printed nothing")
-        return reply
+        try:
+            body = json.loads(done.stdout or "")
+        except json.JSONDecodeError as exc:
+            raise BackendError(f"{self.command} did not return JSON: {exc}") from exc
+        if not isinstance(body, dict):
+            raise BackendError(f"{self.command} returned an unexpected reply")
+        if body.get("is_error"):
+            raise BackendError(f"{self.command} reported an error: {str(body.get('result'))[:300]}")
+
+        usage = body.get("usage") if isinstance(body.get("usage"), dict) else {}
+        self.last_usage = {
+            "prompt_tokens": sum(
+                usage.get(key) or 0
+                for key in ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens")
+            ),
+            "completion_tokens": usage.get("output_tokens") or 0,
+            "cost_usd": body.get("total_cost_usd"),
+        }
+        reply = body.get("result")
+        if not isinstance(reply, str) or not reply.strip():
+            raise BackendError(f"{self.command} returned no text")
+        return reply.strip()
