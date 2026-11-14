@@ -69,6 +69,7 @@ class Finding:
     kind: str
     problem: str
     text: str  # the comment it is about
+    end_line: int = 0  # last line of the comment; 0 if not known
 
     def __str__(self) -> str:
         return f"{self.path}:{self.line}: {self.problem}"
@@ -360,9 +361,79 @@ def review_changes(
                 result.errors.append(f"the reviewer mentioned an unknown comment C{number}")
                 continue
             result.findings.append(
-                Finding(comment.path, comment.line, comment.kind, problem, comment.text)
+                Finding(
+                    comment.path, comment.line, comment.kind, problem, comment.text, comment.end_line
+                )
             )
     result.findings.sort(key=lambda finding: (finding.path, finding.line))
+    return result
+
+
+def review_routed(
+    changes: Iterable[tuple[str, str, str]],
+    backend: Backend,
+    small_backend: Backend | None = None,
+    small_file_lines: int = 0,
+    max_items: int = 10,
+) -> ReviewResult:
+    """Review changes, sending short files to ``small_backend`` if there is one.
+
+    A file counts as short when its new text has at most ``small_file_lines``
+    lines. A cheaper model is enough for a function that fits on a screen; a
+    long file needs the stronger one to keep track of what refers to what.
+    Without a ``small_backend`` everything goes to ``backend``.
+    """
+    changes = list(changes)
+    if small_backend is None:
+        return review_changes(changes, backend, max_items)
+    short = [c for c in changes if len(argus.split_lines(c[2])) <= small_file_lines]
+    long = [c for c in changes if len(argus.split_lines(c[2])) > small_file_lines]
+    merged = ReviewResult()
+    for part, chosen in ((short, small_backend), (long, backend)):
+        if not part:
+            continue
+        result = review_changes(part, chosen, max_items)
+        merged.findings.extend(result.findings)
+        merged.errors.extend(result.errors)
+        merged.reviewed += result.reviewed
+        merged.batches += result.batches
+    merged.findings.sort(key=lambda finding: (finding.path, finding.line))
+    return merged
+
+
+# --- Acting on findings ----------------------------------------------------
+
+
+def drop_flagged(path: str, original: str, new: str, findings: Iterable[Finding]) -> str:
+    """Return ``new`` without the comments that ``findings`` flagged.
+
+    Only whole added comments are removed, so the text moves back towards
+    ``original`` and never away from it. The result is checked the same way a
+    change is checked before review: it must still be ``original`` plus
+    comments and docstrings only, and it must hold exactly the comments that
+    were not flagged. If anything does not add up, nothing is returned.
+
+    Raises:
+        CriticError: if a finding does not match an added comment, or the
+            result fails a check.
+    """
+    before = {(c.line, c.end_line): c for c in find_comments(path, original, new)}
+    doomed: set[int] = set()
+    flagged = set()
+    for finding in findings:
+        comment = before.get((finding.line, finding.end_line))
+        if comment is None or comment.text != finding.text:
+            raise CriticError(f"the finding at line {finding.line} does not match an added comment")
+        flagged.add((finding.line, finding.end_line))
+        doomed.update(range(finding.line, finding.end_line + 1))
+    lines = argus.split_lines(new)
+    result = "".join(line for number, line in enumerate(lines, start=1) if number not in doomed)
+    # find_comments runs both Argus checks and raises if the result is anything
+    # but the original plus comments.
+    kept = [c.text for c in find_comments(path, original, result)]
+    expected = [c.text for key, c in sorted(before.items()) if key not in flagged]
+    if kept != expected:
+        raise CriticError("removing the flagged comments changed other comments")
     return result
 
 

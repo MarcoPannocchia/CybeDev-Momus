@@ -22,6 +22,7 @@ from momus.cli import build_parser, review_command
 from momus.config import (
     ReviewSettings,
     build_review_backend,
+    build_small_review_backend,
     load_review_settings,
 )
 from momus.critic import Comment, CriticError, Group
@@ -491,11 +492,12 @@ def test_bad_review_settings_are_rejected(tmp_path, text):
 
 def test_the_right_backend_is_built_from_the_settings():
     assert isinstance(build_review_backend(ReviewSettings()), ClaudeCodeBackend)
-    assert build_review_backend(ReviewSettings()).model is None
+    assert build_review_backend(ReviewSettings()).model == "sonnet"
+    assert build_review_backend(ReviewSettings(model="")).model is None  # Claude Code's own default
     anthropic = build_review_backend(ReviewSettings(backend="anthropic", model="m"))
     assert isinstance(anthropic, AnthropicBackend) and anthropic.api_key_env == "ANTHROPIC_API_KEY"
     with pytest.raises(BackendError, match="model is required"):
-        build_review_backend(ReviewSettings(backend="anthropic"))
+        build_review_backend(ReviewSettings(backend="anthropic", model=""))
 
 
 def test_the_shipped_example_config_has_a_valid_review_table():
@@ -532,3 +534,148 @@ def test_a_definition_shown_whole_has_no_omission_note():
 def test_the_prompt_tells_the_reviewer_not_to_report_what_it_cannot_see():
     prompt = critic.build_batches(critic.build_groups("m.py", ORIGINAL, NEW))[0].prompt
     assert "Never report something as missing" in prompt
+
+
+# --- A cheaper model for short files ---------------------------------------
+
+LONG_ORIGINAL = "def big():\n" + "".join(f"    x{i} = {i}\n" for i in range(300))
+LONG_NEW = LONG_ORIGINAL.replace("def big():\n", 'def big():\n    """Set three hundred names."""\n', 1)
+
+
+def test_short_files_go_to_the_small_model_and_long_files_to_the_main_one():
+    main, small = FakeBackend(["C1: Wrong."]), FakeBackend(["OK"])
+    result = critic.review_routed(
+        [("short.py", ORIGINAL, NEW), ("long.py", LONG_ORIGINAL, LONG_NEW)], main, small, small_file_lines=50
+    )
+    assert len(small.prompts) == 1 and "=== short.py" in small.prompts[0] and "long.py" not in small.prompts[0]
+    assert len(main.prompts) == 1 and "=== long.py" in main.prompts[0] and "short.py" not in main.prompts[0]
+    assert (result.reviewed, result.batches) == (4, 2)
+    assert [str(f) for f in result.findings] == ["long.py:2: Wrong."]
+
+
+def test_a_file_with_exactly_the_limit_of_lines_is_short():
+    lines = len(NEW.splitlines())
+    main, small = FakeBackend(["OK"]), FakeBackend(["OK"])
+    critic.review_routed([("m.py", ORIGINAL, NEW)], main, small, small_file_lines=lines)
+    assert (len(main.prompts), len(small.prompts)) == (0, 1)
+    main, small = FakeBackend(["OK"]), FakeBackend(["OK"])
+    critic.review_routed([("m.py", ORIGINAL, NEW)], main, small, small_file_lines=lines - 1)
+    assert (len(main.prompts), len(small.prompts)) == (1, 0)
+
+
+def test_without_a_small_model_everything_goes_to_the_main_one():
+    main = FakeBackend(["OK"])
+    result = critic.review_routed([("m.py", ORIGINAL, NEW), ("long.py", LONG_ORIGINAL, LONG_NEW)], main)
+    assert len(main.prompts) == 1 and result.reviewed == 4
+
+
+def test_findings_from_both_models_come_out_in_one_sorted_list():
+    result = critic.review_routed(
+        [("z_short.py", ORIGINAL, NEW), ("a_long.py", LONG_ORIGINAL, LONG_NEW)],
+        FakeBackend(["C1: Long."]), FakeBackend(["C1: Short."]), small_file_lines=50,
+    )
+    assert [str(f) for f in result.findings] == ["a_long.py:2: Long.", "z_short.py:2: Short."]
+
+
+def test_routing_settings_and_their_backends(tmp_path):
+    defaults = ReviewSettings()
+    assert (defaults.model, defaults.small_model, defaults.small_file_lines) == ("sonnet", "haiku", 200)
+    small = build_small_review_backend(defaults)
+    assert isinstance(small, ClaudeCodeBackend) and small.model == "haiku"
+    assert build_small_review_backend(ReviewSettings(small_model="")) is None
+    assert build_small_review_backend(ReviewSettings(model="haiku", small_model="haiku")) is None
+    path = tmp_path / "momus.toml"
+    path.write_text('[review]\nsmall_model = "tiny"\nsmall_file_lines = 40\n')
+    loaded = load_review_settings(path)
+    assert (loaded.small_model, loaded.small_file_lines) == ("tiny", 40)
+    shipped = load_review_settings("momus.toml")
+    assert (shipped.model, shipped.small_model) == ("sonnet", "haiku")
+
+
+# --- Removing what the reviewer flagged ------------------------------------
+
+
+def findings_for(reply: str):
+    return critic.review_changes([("m.py", ORIGINAL, NEW)], FakeBackend([reply])).findings
+
+
+def test_findings_know_where_their_comment_ends():
+    (finding,) = findings_for("C2: Redundant.")
+    assert (finding.line, finding.end_line) == (3, 4)
+
+
+def test_dropping_removes_exactly_the_flagged_comment():
+    result = critic.drop_flagged("m.py", ORIGINAL, NEW, findings_for("C2: Redundant."))
+    assert result == NEW.replace(
+        "    # Keep the sum in a name so it can be inspected.\n    # It is returned unchanged.\n", ""
+    )
+    kept = critic.find_comments("m.py", ORIGINAL, result)  # also proves it is still comments-only
+    assert [c.kind for c in kept] == ["docstring", "comment"]
+
+
+def test_dropping_everything_gives_back_the_original_exactly():
+    everything = findings_for("C1: Bad.\nC2: Bad.\nC3: Bad.")
+    assert critic.drop_flagged("m.py", ORIGINAL, NEW, everything) == ORIGINAL
+
+
+def test_dropping_a_multiline_docstring_removes_all_its_lines():
+    original = "def f():\n    return 1\n"
+    new = 'def f():\n    """Line one.\n\n    Line two.\n    """\n    return 1\n'
+    findings = critic.review_changes([("m.py", original, new)], FakeBackend(["C1: False."])).findings
+    assert critic.drop_flagged("m.py", original, new, findings) == original
+
+
+def test_dropping_nothing_leaves_the_text_alone():
+    assert critic.drop_flagged("m.py", ORIGINAL, NEW, []) == NEW
+
+
+def test_a_finding_that_matches_no_added_comment_is_refused():
+    (finding,) = findings_for("C2: Redundant.")
+    moved = critic.Finding(finding.path, 5, finding.kind, finding.problem, finding.text, 5)
+    with pytest.raises(CriticError, match="does not match"):
+        critic.drop_flagged("m.py", ORIGINAL, NEW, [moved])
+    changed = NEW.replace("It is returned unchanged.", "It is returned as is.")
+    with pytest.raises(CriticError, match="does not match"):
+        critic.drop_flagged("m.py", ORIGINAL, changed, [finding])
+
+
+def test_drop_option_removes_flagged_comments_and_reports_it(tmp_path, capsys):
+    path = tmp_path / "m.py"
+    path.write_text(NEW)
+    out = io.StringIO()
+    status = review_command(
+        [path], FakeBackend(["C1: False."]), read_baseline=lambda p, ref: ORIGINAL, out=out, drop=True
+    )
+    assert status == 0 and out.getvalue() == f"{path}:2: False.\n"
+    assert "removed 1 flagged comment" in capsys.readouterr().err
+    assert path.read_text() == NEW.replace('    """Return the sum of a and b."""\n', "")
+    assert [p.name for p in tmp_path.iterdir()] == ["m.py"]
+
+
+def test_drop_option_with_no_findings_does_not_touch_the_file(tmp_path):
+    path = tmp_path / "m.py"
+    path.write_text(NEW)
+    before = path.stat().st_mtime_ns
+    assert review_command([path], FakeBackend(["OK"]), read_baseline=lambda p, ref: ORIGINAL, drop=True) == 0
+    assert path.read_text() == NEW and path.stat().st_mtime_ns == before
+
+
+def test_a_drop_that_fails_its_check_leaves_the_file_alone(tmp_path, capsys, monkeypatch):
+    import momus.cli
+
+    def refuse(*args):
+        raise CriticError("removing the flagged comments changed other comments")
+
+    monkeypatch.setattr(momus.cli, "drop_flagged", refuse)
+    path = tmp_path / "m.py"
+    path.write_text(NEW)
+    status = review_command(
+        [path], FakeBackend(["C1: False."]), read_baseline=lambda p, ref: ORIGINAL, drop=True
+    )
+    assert status == 1 and path.read_text() == NEW
+    assert "nothing removed" in capsys.readouterr().err
+
+
+def test_drop_is_off_unless_asked_for():
+    assert build_parser().parse_args(["review", "a.py"]).drop is False
+    assert build_parser().parse_args(["review", "a.py", "--drop"]).drop is True

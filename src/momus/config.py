@@ -33,9 +33,16 @@ class ReviewSettings:
     """Settings of the review stage (the strong model)."""
 
     backend: str = "claude_code"
-    # Empty means "the backend's own default" for Claude Code; the Anthropic API
-    # needs a model name.
-    model: str = ""
+    # The model for long files, and for every file if ``small_model`` is empty.
+    # Empty means the backend's own default (Claude Code only), which can be
+    # the most expensive model of the account. Claude Code accepts aliases
+    # such as "sonnet"; the Anthropic API needs full model names.
+    model: str = "sonnet"
+    # A cheaper model for short files. Empty turns the routing off.
+    small_model: str = "haiku"
+    # A file with at most this many lines is short. The value is a first
+    # guess, not a measured threshold.
+    small_file_lines: int = 200
     api_key_env: str = "ANTHROPIC_API_KEY"
     max_tokens: int = 1024
     timeout: float = 300.0
@@ -97,19 +104,33 @@ def build_local_backend(settings: LocalSettings) -> Backend:
     )
 
 
-def build_review_backend(settings: ReviewSettings) -> Backend:
-    """Create the review backend named in ``settings``.
-
-    Raises:
-        BackendError: if the Anthropic backend is chosen without a model.
-    """
+def _review_backend(settings: ReviewSettings, model: str) -> Backend:
     if settings.backend == "claude_code":
-        return ClaudeCodeBackend(model=settings.model or None, timeout=settings.timeout)
-    if not settings.model:
+        return ClaudeCodeBackend(model=model or None, timeout=settings.timeout)
+    if not model:
         raise BackendError("[review] model is required for the anthropic backend")
     return AnthropicBackend(
-        model=settings.model,
+        model=model,
         api_key_env=settings.api_key_env,
         max_tokens=settings.max_tokens,
         timeout=settings.timeout,
     )
+
+
+def build_review_backend(settings: ReviewSettings) -> Backend:
+    """Create the main review backend named in ``settings``.
+
+    Raises:
+        BackendError: if the Anthropic backend is chosen without a model.
+    """
+    return _review_backend(settings, settings.model)
+
+
+def build_small_review_backend(settings: ReviewSettings) -> Backend | None:
+    """Create the backend for short files, or None if routing is off.
+
+    Routing is off when ``small_model`` is empty or the same as ``model``.
+    """
+    if not settings.small_model or settings.small_model == settings.model:
+        return None
+    return _review_backend(settings, settings.small_model)

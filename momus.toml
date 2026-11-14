@@ -29,9 +29,18 @@ timeout = 600.0
 # "anthropic" (the Messages API: needs the environment variable named below).
 backend = "claude_code"
 
-# Model name. Leave empty to use the backend's own default (Claude Code only);
-# the anthropic backend requires one.
-model = ""
+# Model for long files (and for every file if small_model is empty). Claude
+# Code accepts aliases such as "sonnet"; the anthropic backend needs a full
+# model name. Empty means Claude Code's own default, which can be the most
+# expensive model of your account.
+model = "sonnet"
+
+# A cheaper model for short files. Leave empty to send everything to `model`.
+small_model = "haiku"
+
+# A file with at most this many lines counts as short. A first guess, not a
+# measured threshold: raise or lower it to taste.
+small_file_lines = 200
 
 # Only for the anthropic backend: the NAME of the environment variable that
 # holds the key. The key itself never goes in this file.

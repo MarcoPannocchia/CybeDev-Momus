@@ -14,11 +14,12 @@ from pathlib import Path
 
 from momus import bench
 from momus.backends import Backend, BackendError
-from momus.critic import CriticError, read_git_baseline, review_changes
+from momus.critic import CriticError, drop_flagged, read_git_baseline, review_routed
 from momus.clio import DEFAULT_MODE, MODES, ClioError, comment_source, read_text_exact, write_text_atomic
 from momus.config import (
     build_local_backend,
     build_review_backend,
+    build_small_review_backend,
     load_local_settings,
     load_review_settings,
 )
@@ -65,6 +66,12 @@ def build_parser() -> argparse.ArgumentParser:
                 help="git reference holding the files as they were before Momus (default: HEAD)",
             )
             sub.add_argument("--config", type=Path, default="momus.toml", help="config file")
+            sub.add_argument(
+                "--drop",
+                action="store_true",
+                help="remove the flagged comments from the files (default: only report them). "
+                "Every comment added since --base is reviewed, including ones you wrote yourself",
+            )
         if name == "bench":
             sub.add_argument(
                 "--models",
@@ -137,12 +144,18 @@ def review_command(
     max_items: int = 10,
     read_baseline=read_git_baseline,
     out=None,
+    drop: bool = False,
+    small_backend: Backend | None = None,
+    small_file_lines: int = 0,
 ) -> int:
     """Review the comments added to ``files`` since ``base``.
 
     Prints one ``file:line: problem`` per bad comment and nothing else on
-    standard output. Returns 0 if every file was reviewed (whether or not
-    problems were found) and 1 if some file or request could not be.
+    standard output. With ``drop`` the flagged comments are then removed from
+    the files, each file being written only if the result still passes the
+    guard. Short files go to ``small_backend`` when one is given. Returns 0 if
+    every file was reviewed (whether or not problems were found) and 1 if some
+    file or request could not be.
     """
     out = out or sys.stdout
     status = 0
@@ -153,11 +166,23 @@ def review_command(
         except (OSError, ClioError, CriticError) as exc:
             print(f"{path}: cannot review: {exc}", file=sys.stderr)
             status = 1
-    result = review_changes(changes, backend, max_items)
+    result = review_routed(changes, backend, small_backend, small_file_lines, max_items)
     for finding in result.findings:
         print(finding, file=out)
     for error in result.errors:
         print(f"momus review: {error}", file=sys.stderr)
+    if drop:
+        for path, original, new in changes:
+            flagged = [finding for finding in result.findings if finding.path == path]
+            if not flagged:
+                continue
+            try:
+                write_text_atomic(Path(path), drop_flagged(path, original, new, flagged))
+            except (OSError, CriticError) as exc:
+                print(f"{path}: nothing removed: {exc}", file=sys.stderr)
+                status = 1
+            else:
+                print(f"{path}: removed {len(flagged)} flagged comment(s)", file=sys.stderr)
     if not result.reviewed and not result.errors and status == 0:
         print("momus review: no added comments to review", file=sys.stderr)
     return 1 if result.errors else status
@@ -189,10 +214,19 @@ def main(argv: list[str] | None = None) -> int:
         try:
             settings = load_review_settings(args.config)
             backend = build_review_backend(settings)
+            small_backend = build_small_review_backend(settings)
         except BackendError as exc:
             print(f"momus review: {exc}", file=sys.stderr)
             return 1
-        return review_command(args.files, backend, args.base, settings.max_items)
+        return review_command(
+            args.files,
+            backend,
+            args.base,
+            settings.max_items,
+            drop=args.drop,
+            small_backend=small_backend,
+            small_file_lines=settings.small_file_lines,
+        )
     if args.command == "bench":
         return bench.main(args)
     print(f"momus {args.command}: not implemented yet", file=sys.stderr)
