@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
-from momus.state import claim_project_folder, project_folder, project_root
+from momus.state import claim_project_folder, locate, project_folder
 
 # How many copies of each file are kept. Decided by the maintainer
 # (2026-11-12); meant to become a setting.
@@ -63,16 +63,6 @@ class Backups:
         self.home = home
         self.keep = keep
 
-    # The project a file belongs to, and the file's name inside it.
-    def _locate(self, path: Path) -> tuple[Path, str]:
-        full = path.resolve()
-        root = project_root(full.parent)
-        try:
-            name = full.relative_to(root).as_posix()
-        except ValueError:
-            name = full.as_posix()
-        return root, name
-
     # Where the copies of `name` go. The folder is named by a hash, because a
     # path is not a safe folder name.
     def _folder(self, base: Path, name: str) -> Path:
@@ -82,7 +72,7 @@ class Backups:
     # The copies of `path`, oldest first. Copies without their facts, or with
     # facts that cannot be read, are left out.
     def versions(self, path: Path) -> list[Version]:
-        root, name = self._locate(path)
+        root, name = locate(path)
         folder = self._folder(project_folder(root, self.home), name)
         found = []
         for facts_path in sorted(folder.glob("*.json")):
@@ -108,7 +98,7 @@ class Backups:
     #         not write the file.
     def save(self, path: Path, original: str, written: str) -> Version:
         try:
-            root, name = self._locate(path)
+            root, name = locate(path)
             folder = self._folder(claim_project_folder(root, self.home), name)
             folder.mkdir(parents=True, exist_ok=True)
             existing = self.versions(path)

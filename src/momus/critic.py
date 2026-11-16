@@ -80,6 +80,7 @@ class ReviewResult:
     reviewed: int = 0
     batches: int = 0
     errors: list[str] = field(default_factory=list)
+    comments: list[Comment] = field(default_factory=list)  # the ones the reviewer read
     # One entry per request, as counts (for the usage ledger): model,
     # seconds, prompt_tokens, completion_tokens, reviewed, flagged, failed.
     calls: list[dict] = field(default_factory=list)
@@ -214,14 +215,20 @@ def _mark_omissions(code, new_lines, added, owner, span, first, last) -> str:
 # definition longer than `MAX_CONTEXT_LINES` is cut down to the part near
 # its comments.
 #
+# With `only`, a function that says yes or no to a comment, the comments it
+# refuses are not put up for review; they are still marked as added lines in
+# the code shown.
+#
 # Raises:
 #     CriticError: as `find_comments`.
-def build_groups(path: str, original: str, new: str) -> list[Group]:
+def build_groups(path: str, original: str, new: str, only=None) -> list[Group]:
     comments = find_comments(path, original, new)
-    if not comments:
-        return []
     new_lines = argus.split_lines(new)
     added = {n for c in comments for n in range(c.line, c.end_line + 1)}
+    if only is not None:
+        comments = [comment for comment in comments if only(comment)]
+    if not comments:
+        return []
     tree = ast.parse(new)
 
     spans: dict[tuple[int, int] | tuple[str, int], list[Comment]] = {}
@@ -330,13 +337,13 @@ def parse_findings(reply: str) -> list[tuple[int, str]]:
 # A change that cannot be reviewed, or a request that fails, is recorded in
 # `errors` and does not stop the others.
 def review_changes(
-    changes: Iterable[tuple[str, str, str]], backend: Backend, max_items: int = 10
+    changes: Iterable[tuple[str, str, str]], backend: Backend, max_items: int = 10, only=None
 ) -> ReviewResult:
     result = ReviewResult()
     groups: list[Group] = []
     for path, original, new in changes:
         try:
-            groups.extend(build_groups(path, original, new))
+            groups.extend(build_groups(path, original, new, only))
         except (CriticError, argus.ArgusError, SyntaxError, ValueError) as exc:
             result.errors.append(f"{path}: {exc}")
     for batch in build_batches(groups, max_items):
@@ -371,6 +378,7 @@ def review_changes(
         call["reviewed"] = len(batch.comments)
         result.batches += 1
         result.reviewed += len(batch.comments)
+        result.comments.extend(batch.comments.values())
         for number, problem in entries:
             comment = batch.comments.get(number)
             if comment is None:
@@ -398,18 +406,20 @@ def review_routed(
     small_backend: Backend | None = None,
     small_file_lines: int = 0,
     max_items: int = 10,
+    only=None,
 ) -> ReviewResult:
     changes = list(changes)
     if small_backend is None:
-        return review_changes(changes, backend, max_items)
+        return review_changes(changes, backend, max_items, only)
     short = [c for c in changes if len(argus.split_lines(c[2])) <= small_file_lines]
     long = [c for c in changes if len(argus.split_lines(c[2])) > small_file_lines]
     merged = ReviewResult()
     for part, chosen in ((short, small_backend), (long, backend)):
         if not part:
             continue
-        result = review_changes(part, chosen, max_items)
+        result = review_changes(part, chosen, max_items, only)
         merged.findings.extend(result.findings)
+        merged.comments.extend(result.comments)
         merged.errors.extend(result.errors)
         merged.calls.extend(result.calls)
         merged.reviewed += result.reviewed

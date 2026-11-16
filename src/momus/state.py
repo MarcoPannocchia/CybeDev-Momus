@@ -40,6 +40,19 @@ def project_root(start: Path | str = ".") -> Path:
     return Path(top) if top else Path(start).resolve()
 
 
+# The project a file belongs to, and the file's name inside it. The project is
+# the git repository the file is in, wherever the command is run from; for a
+# file outside the project folder the whole path is its name.
+def locate(path: Path | str) -> tuple[Path, str]:
+    full = Path(path).resolve()
+    root = project_root(full.parent)
+    try:
+        name = full.relative_to(root).as_posix()
+    except ValueError:
+        name = full.as_posix()
+    return root, name
+
+
 def _digest(root: Path) -> str:
     return hashlib.sha256(str(root).encode("utf-8", errors="surrogateescape")).hexdigest()
 

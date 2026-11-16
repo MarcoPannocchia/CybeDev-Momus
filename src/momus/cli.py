@@ -16,6 +16,7 @@ from momus import argus, bench
 from momus.backends import Backend, BackendError
 from momus.backup import BackupError, Backups, text_hash
 from momus.ledger import Ledger
+from momus.ownership import Ownership
 from momus.critic import CriticError, drop_flagged, find_comments, read_git_baseline, review_routed
 from momus.clio import (
     DEFAULT_MODE,
@@ -107,7 +108,19 @@ def build_parser() -> argparse.ArgumentParser:
                 "--drop",
                 action="store_true",
                 help="remove the flagged comments from the files (default: only report them). "
-                "Every comment added since --base is reviewed, including ones you wrote yourself",
+                "Every comment added since --base is reviewed, including ones you wrote yourself, "
+                "unless --mine is given",
+            )
+            sub.add_argument(
+                "--mine",
+                action="store_true",
+                help="review (and with --drop, remove) only the comments Momus itself wrote, "
+                "as recorded when `momus comment --write` wrote them",
+            )
+            sub.add_argument(
+                "--unreviewed",
+                action="store_true",
+                help="like --mine, and skip the comments the reviewer has already read",
             )
         if name == "bench":
             sub.add_argument(
@@ -224,8 +237,9 @@ def restore_command(files: list[Path], backups: Backups, force: bool = False, ou
 #
 # With a `ledger`, every request made to the model is recorded there as
 # counts. With `backups`, a copy of a file is saved before it is written, and
-# the file is not written if the copy fails. Returns 0 if every file could be
-# read and processed (and written, if asked), 1 otherwise.
+# the file is not written if the copy fails. With `ownership`, the comments
+# written are recorded as Momus's own. Returns 0 if every file could be read
+# and processed (and written, if asked), 1 otherwise.
 def comment_command(
     files: list[Path],
     backend: Backend,
@@ -234,6 +248,7 @@ def comment_command(
     out=None,
     ledger: Ledger | None = None,
     backups: Backups | None = None,
+    ownership: Ownership | None = None,
 ) -> int:
     out = out or sys.stdout
     status = 0
@@ -274,6 +289,8 @@ def comment_command(
             if not _write_with_backup(path, source, result.text, backups):
                 status = 1
                 continue
+            if ownership is not None:
+                ownership.record_written(path, source, result.text)
             print(f"{path}: written", file=out)
         else:
             print(f"{path}: dry run, nothing written (use --write)", file=out)
@@ -333,7 +350,9 @@ def guard_command(
 # standard output. With `drop` the flagged comments are then removed from
 # the files, each file being written only if the result still passes the
 # guard. Short files go to `small_backend` when one is given. With a `ledger`,
-# every request made to the reviewer is recorded there as counts. Returns 0 if
+# every request made to the reviewer is recorded there as counts. With `mine`
+# only the comments on record as written by Momus are reviewed (and dropped),
+# and with `unreviewed` only those of them not reviewed before. Returns 0 if
 # every file was reviewed (whether or not problems were found) and 1 if some
 # file or request could not be.
 def review_command(
@@ -348,6 +367,9 @@ def review_command(
     small_file_lines: int = 0,
     ledger: Ledger | None = None,
     backups: Backups | None = None,
+    ownership: Ownership | None = None,
+    mine: bool = False,
+    unreviewed: bool = False,
 ) -> int:
     out = out or sys.stdout
     status = 0
@@ -358,7 +380,22 @@ def review_command(
         except (OSError, ClioError, CriticError) as exc:
             print(f"{path}: cannot review: {exc}", file=sys.stderr)
             status = 1
-    result = review_routed(changes, backend, small_backend, small_file_lines, max_items)
+    only = None
+    if mine or unreviewed:
+        # Without a record nothing can be shown to be Momus's, so nothing is reviewed.
+        record = ownership or Ownership()
+        wanted = {
+            path: record.select(Path(path), original, new, unreviewed) for path, original, new in changes
+        }
+
+        def only(comment):
+            return (comment.line, comment.end_line) in wanted.get(comment.path, ())
+
+    result = review_routed(changes, backend, small_backend, small_file_lines, max_items, only)
+    if ownership is not None:
+        for path, original, new in changes:
+            read = [comment for comment in result.comments if comment.path == path]
+            ownership.record_reviewed(Path(path), original, new, read)
     if ledger is not None:
         for call in result.calls:
             ledger.record(
@@ -428,7 +465,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"momus comment: {exc}", file=sys.stderr)
             return 1
         return comment_command(
-            files, backend, args.write, args.mode, ledger=Ledger(), backups=Backups()
+            files, backend, args.write, args.mode, ledger=Ledger(), backups=Backups(), ownership=Ownership()
         )
     if args.command == "restore":
         return restore_command(args.files, Backups(), args.force)
@@ -452,6 +489,9 @@ def main(argv: list[str] | None = None) -> int:
             small_file_lines=settings.small_file_lines,
             ledger=Ledger(),
             backups=Backups(),
+            ownership=Ownership(),
+            mine=args.mine,
+            unreviewed=args.unreviewed,
         )
     return bench.main(args)
 
