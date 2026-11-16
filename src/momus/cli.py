@@ -167,7 +167,7 @@ def comment_command(
                     added=call.added,
                     rejected=call.rejected,
                     failed=call.failed,
-                    dry_run=not write,
+                    dry_run=write,
                 )
         for outcome in result.outcomes:
             print(f"{path}: {outcome.name}: {outcome.status} - {outcome.reason}", file=out)
