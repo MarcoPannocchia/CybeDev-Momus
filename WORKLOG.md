@@ -3,6 +3,71 @@
 Tests run, choices made and why, newest first. Maintained by the `work-log`
 skill. User-facing changes are summarized in [CHANGELOG.md](CHANGELOG.md).
 
+## 2026-11-16 — Backups and `momus restore`; two review findings fixed (plan §16.7)
+
+**Changed**
+- `src/momus/state.py` (new): the state-folder helpers, moved out of
+  `ledger.py` so that backups can use them
+- `src/momus/backup.py` (new): `Backups` (`save`, `versions`, `remove`),
+  `Version.read()`, `text_hash()`
+- `src/momus/cli.py`: `restore_command()` and `momus restore`; both writing
+  commands save a copy first (`_write_with_backup()`)
+- `src/momus/backends/claude_code.py`: unknown token counts stay `None`
+- `tests/test_backup.py` (new, 22 test cases), `tests/test_critic.py` (1 test)
+- `README.md`, `CLAUDE.md` (the commands line), `plan-Momus.md` §16.7,
+  `CHANGELOG.md`
+
+**Tests**
+- Baseline before changes: 427 passed, 1 deselected. After: `.venv/bin/pytest
+  -q` — 450 passed, 1 deselected
+- Mutation check by hand, ten deliberate bugs. Eight caught at once (writing
+  without a copy, hash check skipped, `--force` skipping the guard, copy kept
+  after a restore, drop writing without a copy, retention off, damaged copy
+  accepted, dry run saving a copy). The ninth (two files with the same name
+  sharing copies) was **not** caught: my test put the two files in folders
+  that are separate projects when there is no git repository. I made the
+  test use one repository, and then it was caught. The tenth (line endings
+  translated when the copy is written) cannot show on Linux, where no
+  translation happens; it would matter on Windows, which is not tested
+- Real run, on a throwaway copy of `examples/retry.py` in a temporary folder
+  with a temporary state folder: `momus comment retry.py --write --model
+  qwen2.5-coder:1.5b` wrote the file and saved `000001.orig` and
+  `000001.json`; `momus restore retry.py` printed "restored"; `cmp` against
+  the original: identical
+- Not run: `momus review --drop` followed by a restore with the real
+  reviewer; a disk that fills up while a copy is written; two commands
+  writing copies of the same file at once; Windows; Python other than 3.12.3
+
+**Findings of the cloud review** (run by the maintainer on the ledger commit)
+- The Claude Code backend wrote 0 for a token count Claude Code did not
+  report, while the plan said an unknown count is left empty. Fixed in the
+  backend, with a test
+- The changelog called the ledger "numbers only", but a record also holds
+  the project's folder name and the model's name. The wording is corrected
+  in the changelog, the README and the comments; the record is unchanged
+
+**Decisions** (the assistant's choice, open to change, except where noted)
+- Built now, before the daemon, because both writing commands exist today
+  and the plan's decisions on backups (location, 5 copies, refuse by
+  default, Argus on the restore) were already made by the maintainer
+- **No copy, no write.** The plan asks for a copy before the daemon writes;
+  the same rule is applied to manual `--write` and `--drop`
+- `--force` overrides the "file was edited since" check only. If the code
+  differs between the copy and the file, the restore is refused even when
+  forced, because putting the copy back would change code, which Momus never
+  does. The message gives the path of the copy so it can be used by hand
+- A copy that was used is deleted, so a second restore goes one write back
+- The project of a file is the git repository it is in, wherever the command
+  is run from, so a restore finds the copy from any folder. Without git it is
+  the folder the file is in
+- 5 copies is a constant in the code, not yet a setting in `momus.toml`
+
+**Open / next**
+- The copies are full copies of source files, in the user's own state
+  folder. Nothing removes the copies of a project that was deleted
+- The retention number as a setting (§16.1: every tunable value is a
+  setting)
+
 ## 2026-11-16 — README brought up to date (plan §12)
 
 **Changed**

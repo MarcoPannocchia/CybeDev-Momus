@@ -113,6 +113,9 @@ momus guard path/to/file.py --code-only    # also accept edited or removed comme
 momus review path/to/file.py
 momus review path/to/file.py --drop        # and remove the ones it flags
 
+# Undo: put a file back as it was before Momus last wrote to it.
+momus restore path/to/file.py
+
 # Compare local models on the same files (results go to benchmarks/results/).
 momus bench --models qwen2.5-coder:1.5b qwen2.5-coder:7b
 momus bench --review                       # also count what the reviewer flags
@@ -124,6 +127,7 @@ momus bench --review                       # also count what the reviewer flags
 
 - **The code is never modified, only comments.** Argus enforces this with two checks: the syntax tree must be identical once comments and docstrings are set aside, and removing the added lines must give back the original text exactly. It does not depend on the model behaving well, and when in doubt it rejects.
 - **Dry run by default.** `momus comment` only shows a diff unless you pass `--write`.
+- **A copy before every write.** Before Momus changes a file, the file as it was is saved under `~/.local/state/momus/`, and `momus restore` puts it back. If the copy cannot be saved, the file is not written. A restore never undoes an edit you made to the code since.
 - **Existing comments are left alone.** Clio adds a docstring only where there is none.
 - **Backends are interchangeable.** No stage is tied to a specific model or provider. The OpenAI format is used only as a local protocol; the review uses Claude through Claude Code or the Anthropic API.
 - **Cheap review.** Short files go to a cheaper model and long ones to a stronger one (`small_model`, `small_file_lines` in `momus.toml`).
@@ -132,7 +136,7 @@ momus bench --review                       # also count what the reviewer flags
 
 ## Usage ledger
 
-`momus comment` and `momus review` append one line per model request to `~/.local/state/momus/<project>/usage.jsonl` (or under `$XDG_STATE_HOME`): tokens in and out, seconds, and what came of the request. It holds numbers only, never code, comment text or file names, and it sits outside your project, so your repository is not touched.
+`momus comment` and `momus review` append one line per model request to `~/.local/state/momus/<project>/usage.jsonl` (or under `$XDG_STATE_HOME`): tokens in and out, seconds, and what came of the request. A record holds counts plus the name of the project's folder and of the model: never code, comment text or file names. Mind the folder name if you share the file. It sits outside your project, so your repository is not touched.
 
 ## What has been measured
 

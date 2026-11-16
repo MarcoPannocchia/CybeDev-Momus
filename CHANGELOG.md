@@ -8,10 +8,18 @@ are in [WORKLOG.md](WORKLOG.md).
 
 ### Added
 
+- Backups: before `momus comment --write` or `momus review --drop` changes a
+  file, the file as it was is copied to the state folder
+  (`~/.local/state/momus/<project>/backups/`); if the copy fails the file is
+  not written. The last 5 copies of each file are kept
+- `momus restore FILE [--force]`: puts back the latest copy. It refuses when
+  the file was edited since (unless forced), and always when the code
+  changed since
 - Usage ledger: `momus comment` and `momus review` append one line per model
   request to `~/.local/state/momus/<project>/usage.jsonl` (or under
   `$XDG_STATE_HOME`), with tokens in and out, seconds and what came of the
-  request. Numbers only: no code, no comment text, no file names
+  request. A record holds counts plus the project's folder name and the
+  model's name: no code, no comment text, no file names
 - The `anthropic` review backend reports the tokens each call used
 - `momus bench --review`: what each model wrote is also read by the reviewer,
   and the result files show how many comments it flagged and what the review
@@ -114,6 +122,9 @@ are in [WORKLOG.md](WORKLOG.md).
 
 ### Fixed
 
+- The Claude Code review backend reported 0 tokens when Claude Code gave no
+  count; an unknown count is now left empty, in `last_usage` and so in the
+  usage ledger
 - The Claude Code review backend sent about 186 000 input tokens with every
   request, because `claude -p` loads its full system prompt and every
   connected tool server by default. It now switches all of that off; the same

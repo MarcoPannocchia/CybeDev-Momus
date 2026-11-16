@@ -2,7 +2,8 @@
 #
 # `comment` (docstrings, and inline comments on request), `guard` (check
 # that files hold their git baseline plus comments only), `review` (check the
-# added comments with a strong model) and `bench` (compare models).
+# added comments with a strong model), `bench` (compare models) and `restore`
+# (put a file back as it was before Momus wrote to it).
 
 import argparse
 import difflib
@@ -13,6 +14,7 @@ from pathlib import Path
 
 from momus import argus, bench
 from momus.backends import Backend, BackendError
+from momus.backup import BackupError, Backups, text_hash
 from momus.ledger import Ledger
 from momus.critic import CriticError, drop_flagged, find_comments, read_git_baseline, review_routed
 from momus.clio import (
@@ -38,6 +40,7 @@ COMMANDS = {
     "guard": "check that code is unchanged apart from comments (Argus)",
     "review": "review comments with the strong model (Momus)",
     "bench": "benchmark the local models",
+    "restore": "put back a file as it was before Momus last wrote to it",
 }
 
 
@@ -83,6 +86,14 @@ def build_parser() -> argparse.ArgumentParser:
                 help="only require that the code is identical: also accept reformatting and "
                 "comments or docstrings that were edited or removed (default: accept added "
                 "comments and docstrings only)",
+            )
+        if name == "restore":
+            sub.add_argument("files", nargs="+", type=Path, help="files to put back")
+            sub.add_argument(
+                "--force",
+                action="store_true",
+                help="restore even if the file was edited after Momus wrote it, losing those edits. "
+                "Never restores over a change to the code: only comments may differ",
             )
         if name == "review":
             sub.add_argument("files", nargs="+", type=Path, help="files whose new comments to review")
@@ -133,10 +144,88 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+# Replace `path`, which holds `original`, with `new`, saving a copy first.
+#
+# With `backups`, the file is written only if the copy was saved: no copy, no
+# write. Returns whether the file was written, and says why on standard error
+# when it was not.
+def _write_with_backup(path: Path, original: str, new: str, backups: Backups | None) -> bool:
+    try:
+        if backups is not None:
+            backups.save(path, original, new)
+        write_text_atomic(path, new)
+    except BackupError as exc:
+        print(f"{path}: not written: no backup could be saved: {exc}", file=sys.stderr)
+        return False
+    except OSError as exc:
+        print(f"{path}: not written: {exc}", file=sys.stderr)
+        return False
+    return True
+
+
+# Put each of `files` back as it was before Momus last wrote to it.
+#
+# A file is restored only if it still is exactly what Momus wrote (told by
+# its hash), or with `force`. In both cases Argus must accept the change: the
+# copy and the file may differ in comments and docstrings only, so a restore
+# can never undo an edit to the code. A copy that was used is deleted, so
+# restoring again goes one write further back. Returns 0 if every file was
+# restored or already was as before, 1 otherwise.
+def restore_command(files: list[Path], backups: Backups, force: bool = False, out=None) -> int:
+    out = out or sys.stdout
+    status = 0
+    for path in files:
+        versions = backups.versions(path)
+        if not versions:
+            print(f"{path}: no backup to restore", file=sys.stderr)
+            status = 1
+            continue
+        version = versions[-1]
+        try:
+            current = read_text_exact(path)
+            saved = version.read()
+        except (OSError, ClioError, BackupError) as exc:
+            print(f"{path}: not restored: {exc}", file=sys.stderr)
+            status = 1
+            continue
+        if text_hash(current) == version.original_sha256:
+            backups.remove(version)
+            print(f"{path}: already as it was before Momus wrote", file=out)
+            continue
+        if text_hash(current) != version.written_sha256 and not force:
+            print(
+                f"{path}: not restored: the file was edited after Momus wrote it "
+                f"(--force restores anyway and loses those edits)",
+                file=sys.stderr,
+            )
+            status = 1
+            continue
+        verdict = argus.compare_code(current, saved)
+        if not verdict.accepted:
+            print(
+                f"{path}: not restored: the code changed since the backup ({verdict.reason}). "
+                f"The backup is at {version.text_path}",
+                file=sys.stderr,
+            )
+            status = 1
+            continue
+        try:
+            write_text_atomic(path, saved)
+        except OSError as exc:
+            print(f"{path}: not restored: {exc}", file=sys.stderr)
+            status = 1
+            continue
+        backups.remove(version)
+        print(f"{path}: restored", file=out)
+    return status
+
+
 # Run Clio on `files`; show a diff, and write only if `write` is true.
 #
-# With a `ledger`, every request made to the model is recorded there in
-# numbers. Returns 0 if every file could be read and processed, 1 otherwise.
+# With a `ledger`, every request made to the model is recorded there as
+# counts. With `backups`, a copy of a file is saved before it is written, and
+# the file is not written if the copy fails. Returns 0 if every file could be
+# read and processed (and written, if asked), 1 otherwise.
 def comment_command(
     files: list[Path],
     backend: Backend,
@@ -144,6 +233,7 @@ def comment_command(
     mode: str = DEFAULT_MODE,
     out=None,
     ledger: Ledger | None = None,
+    backups: Backups | None = None,
 ) -> int:
     out = out or sys.stdout
     status = 0
@@ -181,7 +271,9 @@ def comment_command(
         )
         out.writelines(diff)
         if write:
-            write_text_atomic(path, result.text)
+            if not _write_with_backup(path, source, result.text, backups):
+                status = 1
+                continue
             print(f"{path}: written", file=out)
         else:
             print(f"{path}: dry run, nothing written (use --write)", file=out)
@@ -241,7 +333,7 @@ def guard_command(
 # standard output. With `drop` the flagged comments are then removed from
 # the files, each file being written only if the result still passes the
 # guard. Short files go to `small_backend` when one is given. With a `ledger`,
-# every request made to the reviewer is recorded there in numbers. Returns 0 if
+# every request made to the reviewer is recorded there as counts. Returns 0 if
 # every file was reviewed (whether or not problems were found) and 1 if some
 # file or request could not be.
 def review_command(
@@ -255,6 +347,7 @@ def review_command(
     small_backend: Backend | None = None,
     small_file_lines: int = 0,
     ledger: Ledger | None = None,
+    backups: Backups | None = None,
 ) -> int:
     out = out or sys.stdout
     status = 0
@@ -289,12 +382,15 @@ def review_command(
             if not flagged:
                 continue
             try:
-                write_text_atomic(Path(path), drop_flagged(path, original, new, flagged))
-            except (OSError, CriticError) as exc:
+                dropped = drop_flagged(path, original, new, flagged)
+            except CriticError as exc:
                 print(f"{path}: nothing removed: {exc}", file=sys.stderr)
                 status = 1
-            else:
+                continue
+            if _write_with_backup(Path(path), new, dropped, backups):
                 print(f"{path}: removed {len(flagged)} flagged comment(s)", file=sys.stderr)
+            else:
+                status = 1
     if not result.reviewed and not result.errors and status == 0:
         print("momus review: no added comments to review", file=sys.stderr)
     return 1 if result.errors else status
@@ -331,7 +427,11 @@ def main(argv: list[str] | None = None) -> int:
         except BackendError as exc:
             print(f"momus comment: {exc}", file=sys.stderr)
             return 1
-        return comment_command(files, backend, args.write, args.mode, ledger=Ledger())
+        return comment_command(
+            files, backend, args.write, args.mode, ledger=Ledger(), backups=Backups()
+        )
+    if args.command == "restore":
+        return restore_command(args.files, Backups(), args.force)
     if args.command == "guard":
         return guard_command(args.files, args.base, code_only=args.code_only)
     if args.command == "review":
@@ -351,6 +451,7 @@ def main(argv: list[str] | None = None) -> int:
             small_backend=small_backend,
             small_file_lines=settings.small_file_lines,
             ledger=Ledger(),
+            backups=Backups(),
         )
     return bench.main(args)
 

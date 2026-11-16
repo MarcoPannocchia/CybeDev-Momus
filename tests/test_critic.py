@@ -368,6 +368,21 @@ def test_claude_code_reports_the_tokens_the_call_used():
     assert backend.last_usage == {"prompt_tokens": 1272, "completion_tokens": 9, "cost_usd": 0.01}
 
 
+def test_claude_code_token_counts_it_was_not_given_stay_unknown_not_zero():
+    def reply_with(usage):
+        body = {"result": "OK", "is_error": False, "total_cost_usd": 0.01, **usage}
+        backend = ClaudeCodeBackend(runner=Runner(stdout=json.dumps(body)))
+        backend.complete("x")
+        return backend.last_usage
+
+    assert reply_with({}) == {"prompt_tokens": None, "completion_tokens": None, "cost_usd": 0.01}
+    assert reply_with({"usage": "none"})["prompt_tokens"] is None
+    partial = reply_with({"usage": {"input_tokens": 7, "cache_read_input_tokens": None}})
+    assert (partial["prompt_tokens"], partial["completion_tokens"]) == (7, None)
+    # A real zero is still a zero.
+    assert reply_with({"usage": {"input_tokens": 0, "output_tokens": 0}})["completion_tokens"] == 0
+
+
 @pytest.mark.parametrize(
     ("runner", "message"),
     [

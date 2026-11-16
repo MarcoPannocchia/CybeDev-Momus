@@ -21,7 +21,7 @@ module layout, open decisions); this file wins on process conventions
   `pip install -e .` (once `pyproject.toml` exists)
 - Tests: `pytest`
 - CLI: `momus --help`, `momus comment`, `momus guard`, `momus review`,
-  `momus bench`, `momus daemon {start,stop,status}`, `momus restore <file>` (both planned,
+  `momus bench`, `momus restore <file>`, `momus daemon {start,stop,status}` (the daemon is planned,
   §16.7)
 - Local runtime check: `ollama list` (models are served by Ollama on
   `http://localhost:11434`; the `/v1` OpenAI-format endpoint is only a local

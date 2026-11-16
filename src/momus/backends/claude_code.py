@@ -33,6 +33,11 @@ LEAN_FLAGS = [
 ]  # fmt: skip
 
 
+# Tell whether `value` is a token count the server really reported.
+def _is_count(value) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
 # Sends prompts to `claude -p` and returns the text of the reply.
 class ClaudeCodeBackend:
     def __init__(
@@ -97,12 +102,17 @@ class ClaudeCodeBackend:
             raise BackendError(f"{self.command} reported an error: {str(body.get('result'))[:300]}")
 
         usage = body.get("usage") if isinstance(body.get("usage"), dict) else {}
+        # A count that was not reported stays unknown (None). Writing 0 for it
+        # would make a request of unknown cost look like a free one.
+        inputs = [
+            usage[key]
+            for key in ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens")
+            if _is_count(usage.get(key))
+        ]
+        output = usage.get("output_tokens")
         self.last_usage = {
-            "prompt_tokens": sum(
-                usage.get(key) or 0
-                for key in ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens")
-            ),
-            "completion_tokens": usage.get("output_tokens") or 0,
+            "prompt_tokens": sum(inputs) if inputs else None,
+            "completion_tokens": output if _is_count(output) else None,
             "cost_usd": body.get("total_cost_usd"),
         }
         reply = body.get("result")

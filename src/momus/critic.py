@@ -80,7 +80,7 @@ class ReviewResult:
     reviewed: int = 0
     batches: int = 0
     errors: list[str] = field(default_factory=list)
-    # One entry per request, in numbers only (for the usage ledger): model,
+    # One entry per request, as counts (for the usage ledger): model,
     # seconds, prompt_tokens, completion_tokens, reviewed, flagged, failed.
     calls: list[dict] = field(default_factory=list)
 

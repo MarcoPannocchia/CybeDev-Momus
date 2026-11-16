@@ -110,7 +110,7 @@ class ClioResult:
         return bool(self.inserted_lines)
 
 
-# One request to the model, in numbers only: this is what the usage ledger
+# One request to the model, as counts: this is what the usage ledger
 # stores, so it holds no code and no text.
 @dataclass(frozen=True)
 class Call:

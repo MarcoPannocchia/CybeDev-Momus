@@ -1228,6 +1228,23 @@ running, §16.9) and a **usage space** of numbers (§16.10); the folder stays
       feature that writes files, so under CLAUDE.md it goes through the guard
       path: Argus can verify that the restored text differs from the current
       one only in comments (this last part accepted 2026-11-12)
+- [x] **Backups and `momus restore` built 2026-11-16**, ahead of the daemon,
+      for the two commands that write today (`momus comment --write` and
+      `momus review --drop`): `src/momus/backup.py`, `src/momus/state.py`.
+      Before a file is written its text is copied to
+      `<state folder>/<project>/backups/<hash of the file's path>/NNNNNN.orig`
+      with a small `NNNNNN.json` beside it (path inside the project, time,
+      SHA-256 of the text before and after). **No copy, no write.** The last 5
+      copies per file are kept (a constant for now, not yet a setting).
+      `momus restore FILE` puts the latest copy back if the file still is
+      what Momus wrote; `--force` overrides that check. In both cases Argus
+      must find the same code in the copy and in the file, so a restore never
+      undoes an edit to the code, forced or not (the message then says where
+      the copy is). A copy that was used is deleted, so restoring again goes
+      one write further back. Run once for real: write with
+      `qwen2.5-coder:1.5b`, then restore, and the file was byte for byte the
+      original. For a file outside any git repository the "project" is the
+      folder the file is in
 - [x] Review results — decided 2026-11-11: the daemon writes the result to a
       report file in the data folder and `/momus_check` shows it in the chat.
       The output stays short: file, line, problem (§10). This does not depend
