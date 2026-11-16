@@ -421,7 +421,10 @@ momus/
       `find_comments()` that `momus review` uses as its gate, so a
       reformatted file or an edited existing comment is rejected too ("same
       code, but ..."). A file with no baseline in git cannot be checked and
-      counts as a failure. Run for real on this repository
+      counts as a failure. Run for real on this repository. `--code-only`
+      (asked for by the maintainer, 2026-11-16) makes the AST comparison alone
+      decide, so reformatting and edited or removed comments pass; strict
+      stays the default
 - [ ] Design note for later phases (first half done 2026-11-12: the shared
       normalization is `normalized_tree()` / `code_fingerprint()` in
       `argus.py`): the fingerprints and position checks of
@@ -460,9 +463,15 @@ momus/
 
 ## 9. Phase E — Clio (`momus comment`)
 
-- [ ] Reads the given files or the modified ones (`git diff --name-only`),
+- [x] Reads the given files or the modified ones (`git diff --name-only`),
       splits them, sends each piece to the local model, cleans the output,
-      passes it to Argus
+      passes it to Argus — the "modified ones" half built 2026-11-16: `momus
+      comment` with no file names runs on the tracked `.py` files that differ
+      from the last commit (staged or not), anywhere in the repository.
+      Deleted files are left out. **New files git does not track yet are not
+      picked up** (they are not in `git diff`); name them on the command line.
+      The listing was run for real on this repository; `momus comment` with
+      no file names was **not** run with a real model, only with the fake one
 - [ ] (Docstring prompt `src/momus/prompts/clio.txt` and inline-comment
       prompt `clio_comments.txt` built 2026-11-12, rewritten 2026-11-13 after three
       rounds on the five samples with the 1.5B and the 7B; see the quality item
@@ -784,16 +793,11 @@ momus/
 
 **Resume here (state at the end of 2026-11-16)**
 
-- `.venv/bin/pytest` gives 375 passed, 1 deselected. Uncommitted: the
-  `momus guard` step (`src/momus/cli.py`, `tests/test_argus.py`,
-  `tests/test_smoke.py`, `README.md`, `plan-Momus.md`, `CHANGELOG.md`,
-  `WORKLOG.md`)
+- `.venv/bin/pytest` gives 383 passed, 1 deselected
 - Done 2026-11-16: the real run of `momus review --drop` (§10); `momus guard`
-  (§7)
+  with `--code-only` (§7); `momus comment` on the changed files (§9)
 - Next, in the maintainer's order of priority (docstrings first, inline
   comments later):
-  - Clio only takes files named on the command line, not "the files changed
-    in `git diff`" (§9)
   - module docstrings and nested functions are not covered (§9)
   - `momus bench` does not call the reviewer, so its "flagged by the
     reviewer" column is empty (§11)

@@ -33,7 +33,7 @@ git diff  ->  Clio (local LLM)  ->  Argus (AST guard)  ->  Momus (strong LLM rev
 ## Planned CLI
 
 ```bash
-momus comment   # Clio: generate comments for the changed files
+momus comment   # Clio: generate comments for the changed files (or the files you name)
 momus guard     # Argus: check that files hold their git version plus comments only
 momus review    # Momus: final review of the comments with a stronger model
 ```

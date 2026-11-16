@@ -3,6 +3,56 @@
 Tests run, choices made and why, newest first. Maintained by the `work-log`
 skill. User-facing changes are summarized in [CHANGELOG.md](CHANGELOG.md).
 
+## 2026-11-16 — `momus comment` on the changed files; `momus guard --code-only` (plan §9, §7)
+
+**Changed**
+- `src/momus/clio.py`: `changed_python_files()`, which asks git for the
+  tracked `.py` files that differ from `HEAD`
+- `src/momus/cli.py`: `momus comment` takes zero or more files and falls back
+  to the changed ones; `momus guard --code-only`
+- `tests/test_clio.py` (six tests), `tests/test_argus.py` (two tests, and the
+  command-line test extended)
+- `plan-Momus.md` §7, §9, §15; `CHANGELOG.md`; one line of `README.md`
+
+**Tests**
+- Baseline before changes: `.venv/bin/pytest -q` — 375 passed, 1 deselected.
+  After: 383 passed, 1 deselected (integration). The new tests use real
+  temporary git repositories and the fake backend
+- Mutation check by hand, six deliberate bugs (`--code-only` not passed on,
+  deleted files listed, non-Python files listed, staged changes missed,
+  `--code-only` letting a code change through, paths built from the wrong
+  folder): each caught
+- Real runs on this repository: `changed_python_files()` listed exactly the
+  four `.py` files then modified; `momus guard --code-only` still rejected a
+  file whose code had changed
+- **Not run:** `momus comment` with no file names against a real model (the
+  fake backend only); file names with unusual characters; a repository with
+  submodules; Python other than 3.12.3
+
+**Decisions**
+- Strict stays the default for `momus guard`, with an option to relax it —
+  decided by the maintainer. The option's name, `--code-only`, is the
+  assistant's choice, open to change. With it the AST comparison still runs:
+  a code change is rejected in both modes
+- "Changed" means different from the last commit, staged or not — assistant's
+  choice: one answer whatever has been `git add`-ed. Plain `git diff
+  --name-only`, as the plan words it, would miss staged files
+- Untracked new files are not included — assistant's choice, open to change.
+  The plan says `git diff`, which does not list them, and `momus review`
+  cannot check a file with no committed version. Against it: a brand-new file
+  is the most freshly written code there is
+- The whole repository is covered, wherever the command is run from
+- With no changed file the command says so and exits 0 without building a
+  backend
+
+**Open / next**
+- For the maintainer: should `momus comment` with no file names also take new,
+  untracked `.py` files?
+- For the maintainer: "stop doing docstring comments, use inline ones" was not
+  acted on, because I could not tell which of two things it means (see the
+  chat); nothing about docstrings or inline comments was changed
+- Uncommitted: everything listed under "Changed"
+
 ## 2026-11-16 — `momus guard`, Argus as a command (plan §7)
 
 **Changed**

@@ -8,6 +8,11 @@ are in [WORKLOG.md](WORKLOG.md).
 
 ### Added
 
+- `momus comment` with no file names runs on the tracked `.py` files changed
+  since the last commit (staged or not). New files git does not track yet
+  still have to be named
+- `momus guard --code-only`: only requires the code to be identical, so
+  reformatting and edited or removed comments pass
 - `momus guard FILE... [--base REF]`: checks, without writing anything, that
   each file is its git version at `REF` (default `HEAD`) plus added comments
   and docstrings only. Prints `ok` or `REJECTED` with the reason per file and

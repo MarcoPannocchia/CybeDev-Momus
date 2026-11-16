@@ -539,6 +539,10 @@ def test_guard_runs_from_the_command_line_against_git(tmp_path, capsys):
     assert "0 docstring(s) and 0 comment(s) added" in capsys.readouterr().out
     assert main(["guard", str(path), "--base", "HEAD~1"]) == 0
     assert "1 docstring(s) and 1 comment(s) added" in capsys.readouterr().out
+    path.write_text(WITH_COMMENTS.replace("debugger", "person"))
+    assert main(["guard", str(path)]) == 1
+    assert main(["guard", str(path), "--code-only"]) == 0
+    capsys.readouterr()
     path.write_text(WITH_COMMENTS.replace("return total", "return a"))
     assert main(["guard", str(path)]) == 1
     assert "REJECTED" in capsys.readouterr().out
