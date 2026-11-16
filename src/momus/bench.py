@@ -9,6 +9,10 @@
 # read. Both start with the measurement conditions, so a number can be judged
 # against the circumstances it was taken in.
 #
+# With a reviewer (`momus bench --review`) what each model wrote is also sent
+# to the strong model of the `[review]` settings, and the result files say how
+# many comments it flagged and what that review cost.
+#
 # Numbers here are measurements of one run on one machine. The speed figures are
 # wall-clock: they include the time the model spends reading the prompt and,
 # for the first request, loading the model.
@@ -31,7 +35,16 @@ from pathlib import Path
 
 from momus.backends import Backend, BackendError
 from momus.clio import ADDED, REJECTED, SKIPPED, ClioError, comment_source, read_text_exact
-from momus.config import LocalSettings, build_local_backend, load_local_settings
+from momus.config import (
+    LocalSettings,
+    ReviewSettings,
+    build_local_backend,
+    build_review_backend,
+    build_small_review_backend,
+    load_local_settings,
+    load_review_settings,
+)
+from momus.critic import ReviewResult, review_routed
 
 DEFAULT_MODELS = (
     "qwen2.5-coder:1.5b",
@@ -81,6 +94,55 @@ class RecordingBackend:
             )
         )
         return reply
+
+
+# The strong model that reads what a local model wrote, with every request it
+# makes kept in one list so its cost can be reported next to the local model's.
+class Reviewer:
+    def __init__(
+        self,
+        backend: Backend,
+        small_backend: Backend | None = None,
+        small_file_lines: int = 0,
+        max_items: int = 10,
+        description: dict | None = None,
+    ) -> None:
+        self.backend = RecordingBackend(backend)
+        self.small_backend = RecordingBackend(small_backend) if small_backend else None
+        if self.small_backend:
+            # One list for both, in the order the requests were made.
+            self.small_backend.requests = self.backend.requests
+        self.small_file_lines = small_file_lines
+        self.max_items = max_items
+        self.description = description or {}
+
+    @property
+    def requests(self) -> list[Request]:
+        return self.backend.requests
+
+    # Build the reviewer the `[review]` table of the config describes.
+    #
+    # Raises:
+    #     BackendError: if the settings name no usable backend.
+    @classmethod
+    def from_settings(cls, settings: ReviewSettings) -> "Reviewer":
+        return cls(
+            build_review_backend(settings),
+            build_small_review_backend(settings),
+            settings.small_file_lines,
+            settings.max_items,
+            {
+                "backend": settings.backend,
+                "model": settings.model or "(the backend's default)",
+                "small_model": settings.small_model or "(none)",
+                "small_file_lines": settings.small_file_lines,
+            },
+        )
+
+    def review(self, changes: list[tuple[str, str, str]]) -> ReviewResult:
+        return review_routed(
+            changes, self.backend, self.small_backend, self.small_file_lines, self.max_items
+        )
 
 
 # --- Talking to Ollama (optional: everything here may fail quietly) ----------
@@ -223,6 +285,7 @@ class FileRun:
     outcomes: list[dict]
     diff: str
     error: str | None = None
+    findings: list[dict] = field(default_factory=list)  # what the reviewer flagged
 
 
 @dataclass
@@ -233,18 +296,27 @@ class ModelRun:
     files: list[FileRun] = field(default_factory=list)
     requests: list[Request] = field(default_factory=list)
     skipped_reason: str | None = None
+    reviewed: bool = False  # whether a reviewer read the output at all
+    comments_reviewed: int = 0
+    review_requests: list[Request] = field(default_factory=list)
+    review_errors: list[str] = field(default_factory=list)
 
 
 # Run Clio over `paths` with `backend`, as a dry run, and record everything.
+#
+# With a `reviewer`, the text Clio produced for each file is then reviewed,
+# still without writing anything: the findings are stored with their file.
 def run_model(
     model: str,
     backend: Backend,
     paths: list[Path],
     mode: str,
     conditions: dict,
+    reviewer: Reviewer | None = None,
 ) -> ModelRun:
     run = ModelRun(model, conditions, mode)
     recorder = RecordingBackend(backend)
+    changes: list[tuple[str, str, str]] = []
     for path in paths:
         started = time.perf_counter()
         try:
@@ -263,8 +335,29 @@ def run_model(
         )
         outcomes = [vars(outcome).copy() for outcome in result.outcomes]
         run.files.append(FileRun(str(path), time.perf_counter() - started, outcomes, diff))
+        if result.changed:
+            changes.append((str(path), source, result.text))
     run.requests = recorder.requests
+    if reviewer is not None:
+        _review_run(run, reviewer, changes)
     return run
+
+
+# Send what one model wrote to the reviewer and store the answer in `run`.
+def _review_run(run: ModelRun, reviewer: Reviewer, changes: list[tuple[str, str, str]]) -> None:
+    # The reviewer is shared by all models: only the requests made from here
+    # on belong to this run.
+    already = len(reviewer.requests)
+    result = reviewer.review(changes)
+    run.reviewed = True
+    run.comments_reviewed = result.reviewed
+    run.review_errors = list(result.errors)
+    run.review_requests = reviewer.requests[already:]
+    by_path = {f.path: f for f in run.files}
+    for finding in result.findings:
+        by_path[finding.path].findings.append(
+            {"line": finding.line, "kind": finding.kind, "problem": finding.problem, "text": finding.text}
+        )
 
 
 # Turn a run into the numbers of the plan's table.
@@ -272,6 +365,8 @@ def run_model(
 # `accepted_per_minute` is the plan's main metric: insertions that passed
 # Argus, divided by the time spent in the model. `tokens_per_second` is
 # completion tokens over wall-clock seconds, so it includes prompt reading.
+# The reviewer's figures are `None` when no reviewer was used, which is not
+# the same as a reviewer that flagged nothing.
 def summarize(run: ModelRun) -> dict:
     outcomes = [o for f in run.files for o in f.outcomes]
     by = Counter((o["kind"], o["status"]) for o in outcomes)
@@ -282,6 +377,11 @@ def summarize(run: ModelRun) -> dict:
     completion = [r.completion_tokens for r in run.requests if r.completion_tokens is not None]
     prompt = [r.prompt_tokens for r in run.requests if r.prompt_tokens is not None]
     token_seconds = sum(r.seconds for r in run.requests if r.completion_tokens is not None)
+    flagged = sum(len(f.findings) for f in run.files)
+    review_prompt = [r.prompt_tokens for r in run.review_requests if r.prompt_tokens is not None]
+    review_completion = [
+        r.completion_tokens for r in run.review_requests if r.completion_tokens is not None
+    ]
     return {
         "files": len(run.files),
         "files_unreadable": sum(1 for f in run.files if f.error),
@@ -312,6 +412,16 @@ def summarize(run: ModelRun) -> dict:
         if request_seconds
         else None,
         "request_seconds": round(request_seconds, 1),
+        "comments_reviewed": run.comments_reviewed if run.reviewed else None,
+        "flagged_by_reviewer": flagged if run.reviewed else None,
+        "accepted_not_flagged": added - flagged if run.reviewed else None,
+        "review_requests": len(run.review_requests) if run.reviewed else None,
+        "review_errors": len(run.review_errors) if run.reviewed else None,
+        "review_prompt_tokens": sum(review_prompt) if review_prompt else None,
+        "review_completion_tokens": sum(review_completion) if review_completion else None,
+        "review_seconds": round(sum(r.seconds for r in run.review_requests), 1)
+        if run.reviewed
+        else None,
     }
 
 
@@ -338,16 +448,28 @@ def render_markdown(run: ModelRun, summary: dict) -> str:
         "",
         "## Per file",
         "",
-        "| file | seconds | added | rejected | skipped |",
-        "|---|---|---|---|---|",
+        "| file | seconds | added | rejected | skipped | flagged by the reviewer |",
+        "|---|---|---|---|---|---|",
     ]
     for f in run.files:
         count = Counter(o["status"] for o in f.outcomes)
         note = f" ({f.error})" if f.error else ""
         lines.append(
             f"| {Path(f.path).name}{note} | {f.seconds:.1f} | "
-            f"{count[ADDED]} | {count[REJECTED]} | {count[SKIPPED]} |"
+            f"{count[ADDED]} | {count[REJECTED]} | {count[SKIPPED]} | "
+            f"{len(f.findings) if run.reviewed else 'not reviewed'} |"
         )
+    if run.reviewed:
+        # Line numbers are those of the generated text, the `+` side of the diffs below.
+        lines += ["", "## Flagged by the reviewer", ""]
+        lines += [
+            f"- `{Path(f.path).name}:{finding['line']}` ({finding['kind']}): {finding['problem']}"
+            for f in run.files
+            for finding in f.findings
+        ] or ["Nothing flagged."]
+        if run.review_errors:
+            lines += ["", "Review errors (these comments were **not** reviewed):", ""]
+            lines += [f"- {error}" for error in run.review_errors]
     lines += ["", "## Generated text, for review", ""]
     for f in run.files:
         lines += [f"### {Path(f.path).name}", "", "```diff", f.diff.rstrip() or "(no change)", "```", ""]
@@ -368,6 +490,8 @@ def write_run(run: ModelRun, out_dir: Path) -> tuple[Path, Path]:
         "summary": summary,
         "files": [vars(f) for f in run.files],
         "requests": [vars(r) for r in run.requests],
+        "review_requests": [vars(r) for r in run.review_requests],
+        "review_errors": run.review_errors,
     }
     # Appended as text: model names contain dots, and `with_suffix` would take
     # ".5-coder-7b" for an extension and replace it.
@@ -397,6 +521,7 @@ def run_comparison(
     ollama: OllamaInfo | None = None,
     make_backend=build_local_backend,
     log=print,
+    reviewer: Reviewer | None = None,
 ) -> list[ModelRun]:
     ollama = ollama or OllamaInfo(settings.base_url)
     installed = ollama.installed()
@@ -406,12 +531,15 @@ def run_comparison(
         conditions = collect_machine_conditions(notes)
         conditions["ollama_version"] = ollama.version() or "unknown (not Ollama, or not answering)"
         conditions["model_details"] = ollama.details(model) or "unknown"
+        conditions["reviewer"] = reviewer.description if reviewer else "none (run without --review)"
         if installed is not None and model not in installed:
             run = ModelRun(model, conditions, mode, skipped_reason="not installed (see `ollama list`)")
         else:
             if unload:
                 conditions["unloaded_before_run"] = ollama.unload_all()
-            run = run_model(model, make_backend(replace(settings, model=model)), paths, mode, conditions)
+            run = run_model(
+                model, make_backend(replace(settings, model=model)), paths, mode, conditions, reviewer
+            )
             # Sampled again because a run is long enough for a cable to be pulled.
             conditions["power_source_at_end"] = _power_source()
             loaded = [m for m in ollama.loaded() if m.get("name") == model]
@@ -424,6 +552,11 @@ def run_comparison(
                 f"   {stats['accepted_total']} accepted, {stats['requests']} requests, "
                 f"{stats['seconds_total']} s, {stats['tokens_per_second']} tok/s"
             )
+            if run.reviewed:
+                log(
+                    f"   reviewer: {stats['flagged_by_reviewer']} flagged of "
+                    f"{stats['comments_reviewed']} reviewed, {stats['review_errors']} error(s)"
+                )
         runs.append(run)
     return runs
 
@@ -439,6 +572,13 @@ def main(args) -> int:
     if not paths:
         print("momus bench: no files to run on", file=sys.stderr)
         return 1
+    reviewer = None
+    if getattr(args, "review", False):
+        try:
+            reviewer = Reviewer.from_settings(load_review_settings(args.config))
+        except BackendError as exc:
+            print(f"momus bench: {exc}", file=sys.stderr)
+            return 1
     run_comparison(
         list(args.models or DEFAULT_MODELS),
         paths,
@@ -447,5 +587,6 @@ def main(args) -> int:
         Path(args.out),
         notes=args.notes,
         unload=not args.keep_loaded,
+        reviewer=reviewer,
     )
     return 0

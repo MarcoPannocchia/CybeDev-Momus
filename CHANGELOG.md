@@ -8,6 +8,9 @@ are in [WORKLOG.md](WORKLOG.md).
 
 ### Added
 
+- `momus bench --review`: what each model wrote is also read by the reviewer,
+  and the result files show how many comments it flagged and what the review
+  cost in requests and tokens
 - `momus comment` also writes a docstring for the file itself (when it has
   none) and for functions and classes defined inside other functions or
   classes. For the file, the model sees an outline without the bodies and
@@ -117,6 +120,10 @@ are in [WORKLOG.md](WORKLOG.md).
 
 ### Changed
 
+- A docstring now goes directly under the `def` or `class` line, above a
+  comment or empty line that opens the body (it used to go below them)
+- A function defined inside another function is shown to the model together
+  with the header of the outer function
 - The project's own code is explained with `#` comments above each
   definition instead of docstrings (`src/` and `tests/`; the package
   docstring in `src/momus/__init__.py` stays). No behaviour changed

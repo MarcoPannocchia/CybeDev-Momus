@@ -119,6 +119,12 @@ def build_parser() -> argparse.ArgumentParser:
                 help="free text saved with the conditions, e.g. what was closed or running",
             )
             sub.add_argument(
+                "--review",
+                action="store_true",
+                help="also send what each model wrote to the reviewer of the [review] settings "
+                "and count what it flags (uses the strong model, so it costs its tokens)",
+            )
+            sub.add_argument(
                 "--keep-loaded",
                 action="store_true",
                 help="do not unload models before each run (the first request then may be warm)",

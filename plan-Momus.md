@@ -713,10 +713,17 @@ momus/
 > conditions. It is kept as a reusable module so that the final app can call or
 > read it later (§17). **No official run exists yet.** The only real run was a
 > short script check on one file, on **battery**, and it was discarded. Not
-> covered by the engine: "comments flagged by the reviewer" (§10 now exists, but
-> `momus bench` does not call it yet), the
+> covered by the engine: the
 > usage ledger, and a judgement of trivial or wrong comments, which is left to
 > a person reading the Markdown diffs.
+>
+> **Added 2026-11-16:** `momus bench --review` sends what each model wrote to
+> the reviewer of the `[review]` settings (same routing by file size as `momus
+> review`) and records, per model, the comments flagged, the comments
+> reviewed, the review requests with their tokens and seconds, and any review
+> error. The findings are listed in the Markdown file and stored per file in
+> the JSON. Off by default, because it spends the strong model's tokens.
+> Tested with fake backends only: **never run with the real reviewer**.
 
 - [ ] Table per model: seconds per file, tok/s, % of pieces accepted by Argus,
       number of comments flagged by the reviewer

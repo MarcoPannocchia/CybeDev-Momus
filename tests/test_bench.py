@@ -160,6 +160,116 @@ def test_a_model_that_was_not_run_says_so(tmp_path):
     assert "**Not run:** not installed" in md_path.read_text()
 
 
+# --- The reviewer (plan §11: "comments flagged by the reviewer") ------------
+
+
+# Clio writes "First." for both functions and the file; the reviewer flags C1.
+def reviewed_run(tmp_path, review_replies=("C1: Says nothing.",)):
+    path = sample(tmp_path)
+    reviewer = bench.Reviewer(UsageBackend(list(review_replies)))
+    run = bench.run_model("m1", UsageBackend(["DOCSTRING:\nFirst."]), [path], "docstrings", {}, reviewer)
+    return run, reviewer, path
+
+
+def test_without_a_reviewer_the_review_figures_are_empty_not_zero(tmp_path):
+    run = bench.run_model("m1", UsageBackend(["DOCSTRING:\nFirst."]), [sample(tmp_path)], "docstrings", {})
+    stats = bench.summarize(run)
+    assert not run.reviewed and run.files[0].findings == []
+    assert stats["flagged_by_reviewer"] is None and stats["review_requests"] is None
+    assert "not reviewed" in bench.render_markdown(run, stats)
+
+
+def test_the_reviewer_reads_what_the_model_wrote_and_its_findings_are_counted(tmp_path):
+    run, reviewer, path = reviewed_run(tmp_path)
+    assert path.read_text() == TWO_FUNCTIONS  # still a dry run
+    assert run.reviewed and run.comments_reviewed == 3
+    (finding,) = run.files[0].findings
+    assert (finding["line"], finding["kind"], finding["problem"]) == (1, "docstring", "Says nothing.")
+    # The reviewer was shown the generated docstrings, not the original file.
+    assert '+|     """First."""' in reviewer.requests[0].prompt
+    stats = bench.summarize(run)
+    assert (stats["flagged_by_reviewer"], stats["comments_reviewed"]) == (1, 3)
+    assert stats["accepted_total"] == 3 and stats["accepted_not_flagged"] == 2
+
+
+def test_the_review_is_counted_apart_from_the_local_model(tmp_path):
+    run, _, _ = reviewed_run(tmp_path)
+    stats = bench.summarize(run)
+    assert (stats["requests"], stats["prompt_tokens"]) == (3, 30)  # Clio only
+    assert (stats["review_requests"], stats["review_prompt_tokens"], stats["review_completion_tokens"]) == (1, 10, 5)
+
+
+def test_a_review_that_fails_is_recorded_and_the_run_survives(tmp_path):
+    run, _, _ = reviewed_run(tmp_path, review_replies=["I liked it a lot."])
+    stats = bench.summarize(run)
+    assert run.reviewed and stats["flagged_by_reviewer"] == 0
+    assert stats["review_errors"] == 1 and stats["comments_reviewed"] == 0
+    assert "were **not** reviewed" in bench.render_markdown(run, stats)
+
+
+def test_a_file_the_model_added_nothing_to_is_not_sent_to_the_reviewer(tmp_path):
+    reviewer = bench.Reviewer(FakeBackend(["OK"]))
+    run = bench.run_model("m1", FakeBackend(["junk"]), [sample(tmp_path)], "docstrings", {}, reviewer)
+    assert run.reviewed and reviewer.requests == []
+    assert bench.summarize(run)["flagged_by_reviewer"] == 0
+
+
+def test_each_run_gets_only_its_own_review_requests(tmp_path):
+    first, reviewer, path = reviewed_run(tmp_path)
+    second = bench.run_model("m2", UsageBackend(["DOCSTRING:\nSecond."]), [path], "docstrings", {}, reviewer)
+    assert len(reviewer.requests) == 2
+    assert len(first.review_requests) == 1 and len(second.review_requests) == 1
+    assert "Second." in second.review_requests[0].prompt
+
+
+def test_short_files_go_to_the_small_review_model_and_are_still_recorded(tmp_path):
+    main, small = FakeBackend(["OK"]), FakeBackend(["C2: Wrong."])
+    reviewer = bench.Reviewer(main, small, small_file_lines=200)
+    run = bench.run_model(
+        "m1", UsageBackend(["DOCSTRING:\nFirst."]), [sample(tmp_path)], "docstrings", {}, reviewer
+    )
+    assert main.prompts == [] and len(small.prompts) == 1
+    assert len(run.review_requests) == 1 and len(run.files[0].findings) == 1
+
+
+def test_result_files_carry_the_findings_and_the_review_cost(tmp_path):
+    run, _, _ = reviewed_run(tmp_path)
+    json_path, md_path = bench.write_run(run, tmp_path / "out")
+    data = json.loads(json_path.read_text())
+    assert data["files"][0]["findings"][0]["problem"] == "Says nothing."
+    assert data["summary"]["flagged_by_reviewer"] == 1 and len(data["review_requests"]) == 1
+    text = md_path.read_text()
+    assert "## Flagged by the reviewer" in text
+    assert "- `sample.py:1` (docstring): Says nothing." in text
+    (row,) = [line for line in text.splitlines() if line.startswith("| sample.py |")]
+    assert row.endswith("| 3 | 0 | 0 | 1 |")  # added, rejected, skipped, flagged
+
+
+def test_the_comparison_reviews_every_model_and_says_which_reviewer(tmp_path):
+    reviewer = bench.Reviewer(FakeBackend(["OK"]), description={"backend": "fake", "model": "strong"})
+    runs = bench.run_comparison(
+        ["m1", "m2"], [sample(tmp_path)], LocalSettings(), "docstrings", tmp_path / "out",
+        ollama=StubOllama(), make_backend=lambda s: FakeBackend(["DOCSTRING:\nDoc."]),
+        log=lambda *a: None, reviewer=reviewer,
+    )
+    assert all(run.reviewed and run.comments_reviewed == 3 for run in runs)
+    assert runs[0].conditions["reviewer"] == {"backend": "fake", "model": "strong"}
+    unreviewed = bench.run_comparison(
+        ["m1"], [sample(tmp_path)], LocalSettings(), "docstrings", tmp_path / "out2",
+        ollama=StubOllama(), make_backend=lambda s: FakeBackend(["junk"]), log=lambda *a: None,
+    )
+    assert "none" in unreviewed[0].conditions["reviewer"] and not unreviewed[0].reviewed
+
+
+def test_the_reviewer_is_built_from_the_review_settings():
+    from momus.config import ReviewSettings
+
+    reviewer = bench.Reviewer.from_settings(ReviewSettings(small_file_lines=120, max_items=4))
+    assert (reviewer.small_file_lines, reviewer.max_items) == (120, 4)
+    assert reviewer.small_backend is not None and reviewer.small_backend.requests is reviewer.requests
+    assert reviewer.description["model"] == "sonnet" and reviewer.description["small_model"] == "haiku"
+
+
 # --- The comparison --------------------------------------------------------
 
 
@@ -201,6 +311,8 @@ def test_keep_loaded_does_not_unload(tmp_path):
 def test_bench_options_are_parsed():
     args = build_parser().parse_args(["bench", "--models", "a", "b", "--keep-loaded", "--notes", "x"])
     assert (args.models, args.keep_loaded, args.notes, args.mode) == (["a", "b"], True, "x", "docstrings")
+    assert args.review is False
+    assert build_parser().parse_args(["bench", "--review"]).review is True
 
 
 def test_main_refuses_to_run_without_files(tmp_path, capsys):
