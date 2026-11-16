@@ -752,8 +752,13 @@ momus/
 
 - [ ] README in English: what it is, flow diagram, before/after example,
       install, usage, benchmark table, known limits, model-license note (no
-      weights in the repo)
-- [ ] Tell the allegory: Clio writes, Argus watches, Momus criticizes
+      weights in the repo) — rewritten 2026-11-16 to describe what exists:
+      everything in this list **except the benchmark table**, which waits for
+      the official run of §11. The example is real output of
+      `qwen2.5-coder:7b`. Every command shown was checked against the real
+      argument parser. Not checked: the install steps on a clean machine
+- [x] Tell the allegory: Clio writes, Argus watches, Momus criticizes — one
+      line in the README, 2026-11-16
 - [ ] Logo: Greek theatrical mask of Momus with a magnifying glass over one
       eye, flat vector style, thick lines, purple on black, to be converted to
       ASCII art. Note: dark purple on black has very low contrast and the ASCII
@@ -762,7 +767,10 @@ momus/
       before converting
 - [ ] Before publishing: the `momus` name was checked on GitHub on 2026-11-12
       (result in §13; the final decision is the maintainer's), check no
-      secrets in git history, add the MIT LICENSE file (decided 2026-11-12)
+      secrets in git history, add the MIT LICENSE file (decided 2026-11-12).
+      **Noticed 2026-11-16:** the repository already has a `LICENSE` file,
+      from its first commit, and it is **CC0 1.0**, not MIT. Not changed:
+      which licence the file holds is the maintainer's call
 - **Done when:** the repo is public with a README a stranger can follow
 
 ---

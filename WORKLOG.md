@@ -3,6 +3,38 @@
 Tests run, choices made and why, newest first. Maintained by the `work-log`
 skill. User-facing changes are summarized in [CHANGELOG.md](CHANGELOG.md).
 
+## 2026-11-16 — README brought up to date (plan §12)
+
+**Changed**
+- `README.md`: everything below the tagline rewritten. The old text said
+  "early work in progress", listed a "planned" command line and had a roadmap
+  with nothing ticked
+- `plan-Momus.md` §12; `CHANGELOG.md`
+
+**Tests**
+- No code changed; the suite was not run again for this step (427 passed, 1
+  deselected at the commit before)
+- Every `momus ...` line in the README was fed to the real argument parser by
+  a throwaway script: all ten accepted
+- The example is copied from the real run of 2026-11-16 (`qwen2.5-coder:7b`
+  on `async_tools.py`). The figures under "What has been measured" are copied
+  from the worklog entries of 2026-11-14 and 2026-11-16
+- Not checked: the install steps on a clean machine; llama.cpp and LM Studio
+  (the README says they have not been tried); how the page renders on GitHub
+
+**Decisions** (the assistant's choice, open to change)
+- No benchmark table and no made-up one: the section says the comparison has
+  not been run
+- The weak output of the same run is mentioned next to the good example
+- No licence is named in the README, because of the point below
+
+**Open / next**
+- **For the maintainer: the licence.** The plan says MIT (decided 2026-11-12)
+  and "the LICENSE file is still to be added", but a `LICENSE` file has been
+  in the repository since its first commit and it is CC0 1.0 (public domain).
+  I did not touch it. If MIT is what you want, the file has to be replaced
+- The logo and the repository name (§12, §13) are yours to decide
+
 ## 2026-11-16 — Usage ledger (plan §11, §16.10)
 
 **Changed**

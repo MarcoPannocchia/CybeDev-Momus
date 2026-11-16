@@ -125,6 +125,9 @@ are in [WORKLOG.md](WORKLOG.md).
 
 ### Changed
 
+- `README.md` rewritten to describe what the tool does today: a real example,
+  install, every command, the usage ledger, what has been measured so far and
+  the known limits
 - A docstring now goes directly under the `def` or `class` line, above a
   comment or empty line that opens the body (it used to go below them)
 - A function defined inside another function is shown to the model together
