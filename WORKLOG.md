@@ -3,6 +3,57 @@
 Tests run, choices made and why, newest first. Maintained by the `work-log`
 skill. User-facing changes are summarized in [CHANGELOG.md](CHANGELOG.md).
 
+## 2026-11-16 — Ownership record, `momus review --mine` (plan §16.7, §9)
+
+**Changed**
+- `src/momus/ownership.py` (new): `Ownership` (`record_written`, `select`,
+  `record_reviewed`), `comment_hash()`, `owner_name()`
+- `src/momus/state.py`: `locate()`, shared with the backups
+- `src/momus/critic.py`: `build_groups()`, `review_changes()` and
+  `review_routed()` take `only`, a yes/no function per comment;
+  `ReviewResult.comments`
+- `src/momus/cli.py`: `momus review --mine` and `--unreviewed`; `momus comment
+  --write` records what it wrote
+- `tests/test_ownership.py` (new, 19 tests)
+- `README.md`, `plan-Momus.md` §9, §15, §16.7, `CHANGELOG.md`
+
+**Tests**
+- Baseline before changes: 450 passed, 1 deselected. After: `.venv/bin/pytest
+  -q` — 469 passed, 1 deselected
+- Two of the new tests failed at first and both were wrong tests, not wrong
+  code: one put an `import` above a module docstring, which turns the
+  docstring into an ordinary string, so the guard rightly refused the file;
+  the other forgot the empty line that stays when a file's docstring is
+  dropped
+- Mutation check by hand, ten deliberate bugs (everything counted as owned,
+  the name left out of the key, the hash left out, `--unreviewed` ignored,
+  the `--mine` filter not applied, a dry run recorded, a failed review
+  counted as read, comment text stored in the record, a write error escaping,
+  every `#` comment attributed to the file): each caught
+- Not run: anything with the real reviewer or a real model. A record written
+  by two commands at once. Python other than 3.12.3
+
+**Decisions** (the assistant's choice, open to change, except where noted)
+- Recognising a comment by file, qualified name and text hash, with no marker
+  in the code — decided by the maintainer on 2026-11-11. The field names are
+  mine
+- `--mine` is an option, not the default. Making `--drop` remove only Momus's
+  own comments by default would be safer, but it changes what the maintainer
+  accepted on 2026-11-14, and files commented before today have no record,
+  so `--drop` would do nothing on them. Left for the maintainer
+- With `--mine` and no record, nothing is reviewed: a comment that cannot be
+  shown to be Momus's is treated as someone else's
+- A review that fails does not mark its comments as reviewed
+- The record keeps "written" entries of comments that were later dropped or
+  edited. They match nothing any more, so they do no harm, and an
+  append-only file is simpler to trust
+- `reviewed` is recorded on every review, with or without `--mine`
+
+**Open / next**
+- For the maintainer: should `--drop` imply `--mine`?
+- Clio does not yet use the record to rewrite its own stale comments (§16.7)
+- Dropping a file's docstring leaves the empty line that came with it
+
 ## 2026-11-16 — Backups and `momus restore`; two review findings fixed (plan §16.7)
 
 **Changed**

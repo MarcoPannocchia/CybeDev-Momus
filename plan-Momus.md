@@ -606,8 +606,11 @@ momus/
       of a nested `wrapper` described a variable of the outer function as its
       own argument, since a nested function is shown without the code around
       it. Not measured: how often that happens, and the 1.5B
-- [ ] An existing docstring or comment that Momus does not own is never
-      replaced (§16.7, ownership): where one exists, Clio skips that piece
+- [x] An existing docstring or comment that Momus does not own is never
+      replaced (§16.7, ownership): where one exists, Clio skips that piece —
+      true since the first slice (Clio only adds where nothing is there), and
+      since 2026-11-16 the ownership record exists too, so `momus review
+      --mine --drop` cannot remove a comment Momus did not write
 - **Done when:** on `examples/retry.py` it yields a diff containing only the
   docstring, with both models — docstring half met 2026-11-12 in dry-run with
   `qwen2.5-coder:1.5b` and `qwen2.5-coder:7b` (the diff is one inserted
@@ -832,28 +835,39 @@ momus/
 
 **Resume here (state at the end of 2026-11-16)**
 
-- `.venv/bin/pytest` gives 398 passed, 1 deselected
-- Done 2026-11-16: the real run of `momus review --drop` (§10); `momus guard`
-  with `--code-only` (§7); `momus comment` on the changed and new files, and
-  module docstrings and nested definitions in Clio (§9). The repository's own
-  code now uses `#` comments instead of docstrings (rule in `CLAUDE.md`)
-- Next, in the maintainer's order of priority (docstrings first, inline
-  comments later):
-  - a nested function is shown to the model without the function around it,
-    and one real docstring was wrong because of that (§9)
-  - `momus bench` does not call the reviewer, so its "flagged by the
-    reviewer" column is empty (§11)
+- `.venv/bin/pytest` gives 469 passed, 1 deselected. Everything is committed
+- Done 2026-11-16, in this order: the real run of `momus review --drop`
+  (§10); `momus guard` with `--code-only` (§7); `momus comment` on the changed
+  and new files, module docstrings and nested definitions (§9); `momus bench
+  --review` and the usage ledger (§11); the README (§12); backups, `momus
+  restore` and the ownership record with `momus review --mine` (§16.7). The
+  repository's own code uses `#` comments instead of docstrings (`CLAUDE.md`)
+- **Never run with the real reviewer**, because it spends the Claude
+  account's tokens: `momus bench --review`, `momus review --mine`, the ledger
+  on the review side, and any file over 200 lines (the Sonnet side of the
+  routing)
+- Waiting for the maintainer:
+  - the licence: the plan says MIT, the `LICENSE` file in the repository is
+    CC0 1.0 (§12)
+  - should `momus review --drop` remove only Momus's own comments by default
+    (today that needs `--mine`)?
+  - should short nested helpers be left without a docstring (§9)?
+  - is the usage ledger wanted on every manual run, dry runs included (§11)?
+  - §7's "the maintainer can explain the logic in plain words"
+  - the logo and the repository name (§12, §13)
+- Next that needs no decision:
   - the `anthropic` review backend has never been run against the real API
-  - §7's "the maintainer can explain the logic in plain words" is open
-  - §12 README, logo, publication: best done after the points above, so its
-    examples show reviewed output
-- Deferred by the maintainer: the four-model benchmark (§11) and inline
-  comments as a default. Not started: the settings app and the daemon (§16)
+    (needs `ANTHROPIC_API_KEY`, which was not set)
+  - the retention of backups (5) as a setting in `momus.toml`
+  - the official four-model benchmark (§11), deferred by the maintainer
+- Not started: the daemon (needs a file-watching dependency, not yet
+  approved) and the settings app (§16)
 - Traps already met, so they are not met again: `claude -p` without the lean
   flags costs about 186 000 input tokens per call on this machine; examples
   in a prompt get copied into the code by the 1.5B; results kept in `/tmp`
   are lost on restart (the recorded model replies are in
-  `~/.cache/momus-quality/`, outside the repository)
+  `~/.cache/momus-quality/`, outside the repository); a test that passes an
+  option its default value proves nothing (`--base HEAD`)
 
 **Order**
 
@@ -1228,6 +1242,22 @@ running, §16.9) and a **usage space** of numbers (§16.10); the folder stays
       feature that writes files, so under CLAUDE.md it goes through the guard
       path: Argus can verify that the restored text differs from the current
       one only in comments (this last part accepted 2026-11-12)
+- [x] **Ownership record built 2026-11-16** (`src/momus/ownership.py`), ahead
+      of the daemon. `momus comment --write` appends a "written" event for
+      every comment it writes to `<state folder>/<project>/comments.jsonl`;
+      `momus review` appends "reviewed" for the owned comments the reviewer
+      read. Field names (they were not decided): `time`, `event`, `file`
+      (path inside the project), `kind` (docstring or comment), `name`
+      (qualified name of the function or class, `<module>` for the file) and
+      `hash` (SHA-256 of the text with each line's leading and trailing spaces
+      removed). No line numbers, no text. `momus review --mine` reviews, and
+      with `--drop` removes, only the comments on record; `--unreviewed` also
+      skips those already reviewed, which is what `/momus_check` needs.
+      Tested: an edited comment, a renamed function and a lost record each
+      make a comment "not Momus's". **Not built:** Clio rewriting its own
+      stale comments, and finding a comment again after its function moved to
+      another file. Comments written before this record existed are not on
+      it. Fake backends only: never run with the real reviewer
 - [x] **Backups and `momus restore` built 2026-11-16**, ahead of the daemon,
       for the two commands that write today (`momus comment --write` and
       `momus review --drop`): `src/momus/backup.py`, `src/momus/state.py`.

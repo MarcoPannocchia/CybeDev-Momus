@@ -429,7 +429,8 @@ def review_command(
             else:
                 status = 1
     if not result.reviewed and not result.errors and status == 0:
-        print("momus review: no added comments to review", file=sys.stderr)
+        what = "comments written by Momus" if only is not None else "added comments"
+        print(f"momus review: no {what} to review", file=sys.stderr)
     return 1 if result.errors else status
 
 

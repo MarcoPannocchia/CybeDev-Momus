@@ -8,6 +8,11 @@ are in [WORKLOG.md](WORKLOG.md).
 
 ### Added
 
+- Ownership record: `momus comment --write` notes which comments it wrote
+  (file, function or class name and a hash of the text; no text) in the state
+  folder
+- `momus review --mine`: review, and with `--drop` remove, only the comments
+  Momus itself wrote. `--unreviewed` also skips those already reviewed
 - Backups: before `momus comment --write` or `momus review --drop` changes a
   file, the file as it was is copied to the state folder
   (`~/.local/state/momus/<project>/backups/`); if the copy fails the file is

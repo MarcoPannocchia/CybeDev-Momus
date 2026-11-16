@@ -112,6 +112,7 @@ momus guard path/to/file.py --code-only    # also accept edited or removed comme
 # 3. Momus: have the strong model read the comments added since the last commit.
 momus review path/to/file.py
 momus review path/to/file.py --drop        # and remove the ones it flags
+momus review path/to/file.py --mine --drop # only comments Momus itself wrote
 
 # Undo: put a file back as it was before Momus last wrote to it.
 momus restore path/to/file.py
@@ -153,7 +154,7 @@ The comparison of local models (`momus bench`) is built but has not been run for
 - Local models on CPU are slow: this is not an interactive workflow.
 - A local model can write a docstring that is wrong while the code stays intact. Argus cannot catch that; the review stage is there for it, and how often the reviewer itself misses one has not been measured.
 - Every nested function, however small, gets a docstring.
-- `momus review` looks at every comment added since the last commit, including ones you wrote yourself, and `--drop` removes whichever of them it flags. Momus does not yet keep a record of which comments are its own.
+- `momus review` looks at every comment added since the last commit, including ones you wrote yourself, and `--drop` removes whichever of them it flags. Pass `--mine` to limit both to the comments Momus wrote: it keeps a record of them (file, function name and a hash of the text, no text) next to the usage ledger. A comment you edit stops being Momus's.
 - A file that has never been committed can be commented but not reviewed or guarded.
 - Only `.py` files are supported.
 - Developed and tested on Linux with Python 3.12 only.
