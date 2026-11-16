@@ -633,18 +633,25 @@ momus/
       `haiku`) and `small_file_lines` (default 200); a file with at most that
       many lines goes to the small model. **The 200 is a first guess, not
       measured.** All five sample files are under 50 lines, so the experiment
-      above says nothing about long files. Tested with fake backends only;
-      **never run with the real reviewer** (see below)
-- [ ] **`momus review --drop`** — decided 2026-11-14 by the maintainer, on the
+      above says nothing about long files. Tested with fake backends; with the
+      real reviewer only the short-file side has run (2026-11-16: a 14-line
+      file went to Haiku). **No file over 200 lines has gone to the real
+      reviewer**, so the Sonnet side of the routing is unseen
+- [x] **`momus review --drop`** — decided 2026-11-14 by the maintainer, on the
       assistant's proposal: an opt-in that removes the comments the reviewer
       flagged. A file is rewritten only if the result is still the baseline
       plus comments and docstrings (both Argus checks) and holds exactly the
       comments that were not flagged; otherwise nothing is written. Without
       `--drop` the command only reports. Built and tested with fake backends
-      (366 tests green). **Not ticked: the one real run failed** because the
+      (366 tests green). The first real run (2026-11-14) failed because the
       Claude account had reached its monthly spend limit (HTTP 429); Momus
-      left the file untouched and exited 1, which is the intended behaviour,
-      but a successful real run has not been seen. Known limit: every comment
+      left the file untouched and exited 1, which is the intended behaviour.
+      **Real run succeeded 2026-11-16**: on a temporary repository, a false
+      docstring and a redundant comment were removed, a good comment was
+      kept, and `argus.compare_code` against the commit accepted the result
+      (one run, one 14-line file, Haiku). Seen in the same session: `#` lines
+      that touch each other count as **one** comment, so a good line directly
+      above or below a flagged one is removed with it. Known limit: every comment
       added since the git baseline is reviewed, so a comment the maintainer
       wrote and the reviewer flags is removed too (no ownership record yet,
       §16.7); the `--help` text says so
@@ -766,17 +773,12 @@ momus/
 > already installed, slow connection). Re-evaluate at the recheck checkpoint
 > rather than assuming it is still right.
 
-**Resume here (state at the end of 2026-11-14)**
+**Resume here (state at the end of 2026-11-16)**
 
-- Everything is committed; `.venv/bin/pytest` gives 366 passed, 1 deselected
-- **First thing to do:** run `momus review --drop` for real, once the Claude
-  account's spend limit has reset. Recipe: a temporary git repository, a small
-  file committed, then a false docstring, a redundant comment and a good
-  comment added; run `momus review FILE --drop --config <repo>/momus.toml`;
-  expect the false and the redundant one removed, the good one kept, and
-  `argus.compare_code` against the commit accepted. Then tick the `--drop`
-  item of §10 and say in `WORKLOG.md` which model handled the file
-- Then, in the maintainer's order of priority (docstrings first, inline
+- `.venv/bin/pytest` gives 366 passed, 1 deselected. Uncommitted:
+  `plan-Momus.md` and `WORKLOG.md` (the 2026-11-16 entry); no code changed
+- Done 2026-11-16: the real run of `momus review --drop` (§10)
+- Next, in the maintainer's order of priority (docstrings first, inline
   comments later):
   - `momus guard` is still a placeholder: Argus has no command of its own
   - Clio only takes files named on the command line, not "the files changed

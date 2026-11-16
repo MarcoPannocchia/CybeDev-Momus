@@ -3,6 +3,51 @@
 Tests run, choices made and why, newest first. Maintained by the `work-log`
 skill. User-facing changes are summarized in [CHANGELOG.md](CHANGELOG.md).
 
+## 2026-11-16 — Real run of `momus review --drop` (plan §10)
+
+**Changed**
+- `plan-Momus.md`: §10 `--drop` item ticked, routing item says what has and
+  has not run for real; §15 "Resume here" updated
+- No code and no test changed, so `CHANGELOG.md` has no new line
+
+**Tests**
+- Baseline: `.venv/bin/pytest -q` — 366 passed, 1 deselected (integration).
+  Nothing in the suite changed afterwards, so it was not run again
+- Real run, the recipe of §15: a temporary git repository, an 11-line
+  `calc.py` committed (`clamp`, `mean`), then three comments added: a false
+  docstring on `clamp` ("Return the square root of value..."), `# Sum the
+  numbers.` above `total = sum(numbers)`, and a useful comment about
+  `ZeroDivisionError` above the `return`. Command: `momus review calc.py
+  --drop --config <repo>/momus.toml`
+- Result: exit 0, "removed 2 flagged comment(s)"; the false docstring and the
+  redundant comment were gone, the useful comment was still there;
+  `argus.compare_code` of the commit against the result: accepted
+- Which model: Haiku, one request, 1 880 input and 514 output tokens, cost
+  reported by Claude Code $0.0006. Seen by running the same CLI entry point
+  from a throwaway script that printed the backend's model and `last_usage`
+  after each call (the CLI itself does not print them)
+- An earlier run the same day had the redundant and the useful comment on two
+  lines touching each other. They were reviewed as one comment, flagged for
+  the redundant sentence, and removed together. That is what the code is
+  written to do (`find_comments()` joins touching `#` lines into one block),
+  not a fault of the reviewer; the run above separates them
+- Not run: a file over 200 lines, so the Sonnet side of the routing has still
+  never run for real; more than one file; the `anthropic` backend against the
+  real API. One run on one tiny file written by the assistant
+
+**Decisions**
+- None. The block behaviour is left as it is and reported to the maintainer
+
+**Open / next**
+- For the maintainer: should `--drop` on a block of several `#` lines remove
+  the whole block (today), or should the reviewer be asked about each line?
+  Clio writes one-line comments, so today this only touches hand-written
+  blocks
+- `momus review` does not say which model handled a file or what it cost
+- The list under "Resume here" in `plan-Momus.md` §15; first on it is
+  `momus guard`
+- Uncommitted: `plan-Momus.md`, `WORKLOG.md`
+
 ## 2026-11-14 — Reviewer model by file size, `momus review --drop`; state at the end of the session (plan §10)
 
 **Where things stand**
