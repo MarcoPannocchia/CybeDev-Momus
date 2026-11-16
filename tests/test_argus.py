@@ -5,6 +5,8 @@ means the guard found the code unchanged; "discarded" means it rejected the
 new text.
 """
 
+import io
+import subprocess
 import textwrap
 
 import pytest
@@ -17,6 +19,8 @@ from momus.argus import (
     compare_code,
     normalized_tree,
 )
+from momus.cli import guard_command, main
+from momus.critic import CriticError
 
 
 def src(text: str) -> str:
@@ -413,3 +417,99 @@ def test_inserted_check_rejects_non_text(bad):
 @pytest.mark.parametrize("inserted", [None, 2, [2.0, 3], ["2", "3"], [True, 3]])
 def test_inserted_check_rejects_bad_line_numbers(inserted):
     assert not intact(BEFORE, AFTER, inserted)
+
+
+# --- The command: `momus guard` --------------------------------------------
+
+WITH_COMMENTS = src(
+    '''
+    def add(a, b):
+        """Return the sum of a and b."""
+        # Kept in a variable so a debugger can show it.
+        total = a + b
+        return total
+    '''
+)
+
+
+def run_guard(tmp_path, text, baseline=ORIGINAL):
+    path = tmp_path / "m.py"
+    path.write_text(text)
+    out = io.StringIO()
+    status = guard_command([path], read_baseline=lambda p, ref: baseline, out=out)
+    assert path.read_text() == text  # the guard never edits the file
+    return status, out.getvalue(), path
+
+
+def test_guard_accepts_added_comments_and_counts_them(tmp_path):
+    status, out, path = run_guard(tmp_path, WITH_COMMENTS)
+    assert (status, out) == (0, f"{path}: ok - 1 docstring(s) and 1 comment(s) added\n")
+
+
+def test_guard_accepts_an_unchanged_file(tmp_path):
+    status, out, _ = run_guard(tmp_path, ORIGINAL)
+    assert status == 0 and "ok - 0 docstring(s) and 0 comment(s) added" in out
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        WITH_COMMENTS.replace("a + b", "a - b"),  # code changed
+        ORIGINAL.replace("a + b", "a+b"),  # reformatted: same tree, other bytes
+        ORIGINAL + "print(add(1, 2))\n",  # code added
+        "def add(a, b:\n",  # does not parse
+    ],
+)
+def test_guard_rejects_anything_but_added_comments(tmp_path, text):
+    status, out, path = run_guard(tmp_path, text)
+    assert status == 1 and out.startswith(f"{path}: REJECTED - ")
+
+
+def test_guard_rejects_an_existing_comment_that_was_edited(tmp_path):
+    edited = WITH_COMMENTS.replace("debugger", "person")
+    status, out, _ = run_guard(tmp_path, edited, baseline=WITH_COMMENTS)
+    assert status == 1 and "REJECTED" in out
+
+
+def test_guard_fails_when_a_file_cannot_be_checked(tmp_path, capsys):
+    def no_baseline(path, ref):
+        raise CriticError("no baseline at HEAD")
+
+    path = tmp_path / "m.py"
+    path.write_text(WITH_COMMENTS)
+    assert guard_command([path], read_baseline=no_baseline) == 1
+    assert guard_command([tmp_path / "missing.py"], read_baseline=lambda p, ref: ORIGINAL) == 1
+    captured = capsys.readouterr()
+    assert captured.out == "" and captured.err.count("cannot check") == 2
+
+
+def test_guard_checks_every_file_and_fails_if_one_does(tmp_path):
+    good, bad = tmp_path / "good.py", tmp_path / "bad.py"
+    good.write_text(WITH_COMMENTS)
+    bad.write_text(ORIGINAL.replace("a + b", "a * b"))
+    out = io.StringIO()
+    assert guard_command([bad, good], read_baseline=lambda p, ref: ORIGINAL, out=out) == 1
+    assert out.getvalue().splitlines() == [
+        f"{bad}: REJECTED - not a comments-only change: code differs from the original",
+        f"{good}: ok - 1 docstring(s) and 1 comment(s) added",
+    ]
+
+
+def test_guard_runs_from_the_command_line_against_git(tmp_path, capsys):
+    def git(*args):
+        subprocess.run(
+            ["git", "-C", str(tmp_path), "-c", "user.name=t", "-c", "user.email=t@example.invalid", *args],
+            check=True,
+            capture_output=True,
+        )
+
+    path = tmp_path / "m.py"
+    path.write_text(ORIGINAL)
+    git("init", "-q")
+    git("add", "m.py")
+    git("commit", "-q", "-m", "x")
+    path.write_text(WITH_COMMENTS)
+    assert main(["guard", str(path)]) == 0
+    path.write_text(WITH_COMMENTS.replace("return total", "return a"))
+    assert main(["guard", str(path), "--base", "HEAD"]) == 1
+    assert "REJECTED" in capsys.readouterr().out

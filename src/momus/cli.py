@@ -1,9 +1,8 @@
 """Command-line entry point for Momus.
 
-``comment`` (docstrings, and inline comments on request), ``review`` (check the added
-comments with a strong model) and ``bench`` (compare models) are implemented.
-``guard`` is still a placeholder that reports it is not implemented and exits
-with a non-zero status, so nothing can be mistaken for working behaviour.
+``comment`` (docstrings, and inline comments on request), ``guard`` (check
+that files hold their git baseline plus comments only), ``review`` (check the
+added comments with a strong model) and ``bench`` (compare models).
 """
 
 import argparse
@@ -14,7 +13,7 @@ from pathlib import Path
 
 from momus import bench
 from momus.backends import Backend, BackendError
-from momus.critic import CriticError, drop_flagged, read_git_baseline, review_routed
+from momus.critic import CriticError, drop_flagged, find_comments, read_git_baseline, review_routed
 from momus.clio import DEFAULT_MODE, MODES, ClioError, comment_source, read_text_exact, write_text_atomic
 from momus.config import (
     build_local_backend,
@@ -24,8 +23,7 @@ from momus.config import (
     load_review_settings,
 )
 
-# Subcommand name -> one-line help. The stages behind them are built in later
-# plan phases (Clio, Argus, the critic, the benchmark).
+# Subcommand name -> one-line help.
 COMMANDS = {
     "comment": "add comments and docstrings with the local model (Clio)",
     "guard": "check that code is unchanged apart from comments (Argus)",
@@ -35,7 +33,7 @@ COMMANDS = {
 
 
 def build_parser() -> argparse.ArgumentParser:
-    """Build the top-level argument parser with one placeholder subcommand per stage."""
+    """Build the top-level argument parser with one subcommand per stage."""
     parser = argparse.ArgumentParser(
         prog="momus",
         description="Comment and document freshly written code with few tokens.",
@@ -58,6 +56,13 @@ def build_parser() -> argparse.ArgumentParser:
                 help="what to add: docstrings (default), inline comments, or both",
             )
             sub.add_argument("--config", type=Path, default="momus.toml", help="config file")
+        if name == "guard":
+            sub.add_argument("files", nargs="+", type=Path, help="files to check")
+            sub.add_argument(
+                "--base",
+                default="HEAD",
+                help="git reference holding the files as they were before (default: HEAD)",
+            )
         if name == "review":
             sub.add_argument("files", nargs="+", type=Path, help="files whose new comments to review")
             sub.add_argument(
@@ -137,6 +142,39 @@ def comment_command(
     return status
 
 
+def guard_command(files: list[Path], base: str = "HEAD", read_baseline=read_git_baseline, out=None) -> int:
+    """Check that each of ``files`` is its text at ``base`` plus comments only.
+
+    A file passes when both Argus checks accept it: the code is the same, and
+    the only difference is added lines holding comments or docstrings. So a
+    reformatted file, or one where an existing comment was edited or removed,
+    is rejected like a code change. Prints one line per file and never writes
+    anything. Returns 0 if every file passed, and 1 if any was rejected or
+    could not be checked (unreadable, or no baseline in git).
+    """
+    out = out or sys.stdout
+    status = 0
+    for path in files:
+        try:
+            original, new = read_baseline(path, base), read_text_exact(path)
+        except (OSError, ClioError, CriticError) as exc:
+            print(f"{path}: cannot check: {exc}", file=sys.stderr)
+            status = 1
+            continue
+        try:
+            added = find_comments(str(path), original, new)
+        except CriticError as exc:
+            print(f"{path}: REJECTED - {exc}", file=out)
+            status = 1
+            continue
+        docstrings = sum(comment.kind == "docstring" for comment in added)
+        print(
+            f"{path}: ok - {docstrings} docstring(s) and {len(added) - docstrings} comment(s) added",
+            file=out,
+        )
+    return status
+
+
 def review_command(
     files: list[Path],
     backend: Backend,
@@ -191,9 +229,8 @@ def review_command(
 def main(argv: list[str] | None = None) -> int:
     """Run the CLI and return the process exit status.
 
-    With no command it prints the help text and returns 0. A known command
-    returns 1 because none of them is implemented yet; ``comment`` runs Clio and
-    ``bench`` compares models.
+    With no command it prints the help text and returns 0. Otherwise it
+    returns the status of the command that ran.
     """
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -210,6 +247,8 @@ def main(argv: list[str] | None = None) -> int:
             print(f"momus comment: {exc}", file=sys.stderr)
             return 1
         return comment_command(args.files, backend, args.write, args.mode)
+    if args.command == "guard":
+        return guard_command(args.files, args.base)
     if args.command == "review":
         try:
             settings = load_review_settings(args.config)
@@ -227,10 +266,7 @@ def main(argv: list[str] | None = None) -> int:
             small_backend=small_backend,
             small_file_lines=settings.small_file_lines,
         )
-    if args.command == "bench":
-        return bench.main(args)
-    print(f"momus {args.command}: not implemented yet", file=sys.stderr)
-    return 1
+    return bench.main(args)
 
 
 if __name__ == "__main__":

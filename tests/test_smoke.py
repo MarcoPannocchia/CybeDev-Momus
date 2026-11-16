@@ -22,9 +22,3 @@ def test_help_flag_exits_cleanly(capsys):
     out = capsys.readouterr().out
     for name in COMMANDS:
         assert name in out
-
-
-@pytest.mark.parametrize("command", sorted(set(COMMANDS) - {"comment", "bench", "review"}))
-def test_placeholder_commands_report_not_implemented(command, capsys):
-    assert main([command]) == 1
-    assert "not implemented yet" in capsys.readouterr().err
