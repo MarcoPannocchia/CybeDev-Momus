@@ -3,6 +3,58 @@
 Tests run, choices made and why, newest first. Maintained by the `work-log`
 skill. User-facing changes are summarized in [CHANGELOG.md](CHANGELOG.md).
 
+## 2026-11-16 — `momus guard`, Argus as a command (plan §7)
+
+**Changed**
+- `src/momus/cli.py`: `guard_command()` and the `guard` options (`files`,
+  `--base`); the "not implemented yet" fallback is gone, since no placeholder
+  command is left
+- `tests/test_argus.py`: ten tests for the command. `tests/test_smoke.py`: the
+  placeholder test removed (it had no command left to run on)
+- `README.md`: the one line describing `momus guard`
+- `plan-Momus.md` §7 and §15; `CHANGELOG.md`
+
+**Tests**
+- Baseline before changes: `.venv/bin/pytest -q` — 366 passed, 1 deselected.
+  After: 375 passed, 1 deselected (integration). One test uses a real
+  temporary git repository; no model is involved anywhere
+- Mutation check by hand, four deliberate bugs: the AST verdict ignored, a
+  failed second check not counted in the exit status, an unreadable file not
+  counted, `--base` ignored. The first three were caught at once. **The fourth
+  was not**: my test passed `--base HEAD`, which is the default. I rewrote the
+  test with two commits and `--base HEAD~1`, and then it was caught
+- Real run on this repository: `momus guard src/momus/cli.py
+  src/momus/argus.py` printed `REJECTED - code differs from the original` for
+  the file being edited and `ok - 0 docstring(s) and 0 comment(s) added` for
+  the untouched one, exit 1. A file not in git gave `cannot check: no baseline
+  at HEAD`, and `README.md` was rejected as unparseable
+- Not run: a file whose baseline is not UTF-8; Windows line endings through
+  the command (the checks underneath are tested for them); Python other than
+  3.12.3
+
+**Decisions**
+- Both checks, not the AST comparison alone — assistant's choice, open to
+  change. The guarantee Momus makes is "the original plus added comments", and
+  the AST comparison alone accepts a reformatted file. The cost: editing or
+  deleting a comment you wrote yourself is rejected, with a reason starting
+  "same code, but". Alternative considered: AST only by default and a
+  `--strict` option for the second check
+- The command calls `critic.find_comments()`, the gate `momus review` already
+  uses, instead of a second implementation of the same test. The AST
+  comparison is asked first only so the message can say whether the code
+  itself changed
+- A file that cannot be checked (no baseline, unreadable) makes the exit
+  status 1: fail closed
+- Any file name is accepted, not only `.py`; a non-Python file is rejected
+  because it does not parse
+
+**Open / next**
+- For the maintainer: is rejecting an edited or removed existing comment what
+  you want from `momus guard`, or should that be allowed?
+- Next on the list of `plan-Momus.md` §15: Clio taking the files changed in
+  `git diff`
+- Uncommitted: everything listed under "Changed"
+
 ## 2026-11-16 — Real run of `momus review --drop` (plan §10)
 
 **Changed**

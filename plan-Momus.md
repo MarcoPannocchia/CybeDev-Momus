@@ -413,6 +413,15 @@ momus/
       text and the numbers of the inserted lines. It can be built and tested
       now without the insertion step of §9, which does not exist yet; it is
       wired in during §9
+- [x] **`momus guard FILE... [--base REF]`** — built 2026-11-16. Read-only:
+      for each file it compares the text in git at `REF` (default `HEAD`)
+      with the file on disk and prints `ok` with the number of docstrings and
+      comments added, or `REJECTED` with the reason; exit status 0 only if
+      every file passed. It runs both checks, through the same
+      `find_comments()` that `momus review` uses as its gate, so a
+      reformatted file or an edited existing comment is rejected too ("same
+      code, but ..."). A file with no baseline in git cannot be checked and
+      counts as a failure. Run for real on this repository
 - [ ] Design note for later phases (first half done 2026-11-12: the shared
       normalization is `normalized_tree()` / `code_fingerprint()` in
       `argus.py`): the fingerprints and position checks of
@@ -775,12 +784,14 @@ momus/
 
 **Resume here (state at the end of 2026-11-16)**
 
-- `.venv/bin/pytest` gives 366 passed, 1 deselected. Uncommitted:
-  `plan-Momus.md` and `WORKLOG.md` (the 2026-11-16 entry); no code changed
-- Done 2026-11-16: the real run of `momus review --drop` (§10)
+- `.venv/bin/pytest` gives 375 passed, 1 deselected. Uncommitted: the
+  `momus guard` step (`src/momus/cli.py`, `tests/test_argus.py`,
+  `tests/test_smoke.py`, `README.md`, `plan-Momus.md`, `CHANGELOG.md`,
+  `WORKLOG.md`)
+- Done 2026-11-16: the real run of `momus review --drop` (§10); `momus guard`
+  (§7)
 - Next, in the maintainer's order of priority (docstrings first, inline
   comments later):
-  - `momus guard` is still a placeholder: Argus has no command of its own
   - Clio only takes files named on the command line, not "the files changed
     in `git diff`" (§9)
   - module docstrings and nested functions are not covered (§9)

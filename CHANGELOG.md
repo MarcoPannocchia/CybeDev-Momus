@@ -8,6 +8,10 @@ are in [WORKLOG.md](WORKLOG.md).
 
 ### Added
 
+- `momus guard FILE... [--base REF]`: checks, without writing anything, that
+  each file is its git version at `REF` (default `HEAD`) plus added comments
+  and docstrings only. Prints `ok` or `REJECTED` with the reason per file and
+  exits 1 if any file fails or cannot be checked
 - `momus review --drop`: removes the comments the reviewer flagged. A file is
   written only if the result is still the original code plus comments; without
   the option the command only reports
