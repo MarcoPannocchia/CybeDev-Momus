@@ -117,13 +117,14 @@ def test_docstrings_are_added_to_functions_classes_and_methods():
     backend = FakeBackend([reply("Sum.")])
     result = docs(SOURCE, backend)
     assert statuses(result) == {
+        "<module>": ADDED,
         "add": ADDED,
         "Box": ADDED,
         "Box.size": ADDED,
         "Box.grow": ADDED,
     }
     assert docstrings(result.text) == {"add": "Sum.", "Box": "Sum.", "size": "Sum.", "grow": "Sum."}
-    assert len(backend.prompts) == 4
+    assert len(backend.prompts) == 5  # four definitions and the file itself
 
 
 def test_result_passes_both_argus_checks_and_keeps_code_identical():
@@ -147,7 +148,8 @@ def test_docstring_of_a_decorated_first_method_goes_above_the_decorator():
 def test_docstring_goes_before_a_decorator_when_it_is_the_first_statement():
     source = "class Box:\n    @property\n    def size(self):\n        return 1\n"
     result = docs(source, FakeBackend([reply("Doc.")]))
-    assert result.text.splitlines()[:3] == ["class Box:", '    """Doc."""', "    @property"]
+    # Two lines down: the file's own docstring and an empty line come first.
+    assert result.text.splitlines()[2:5] == ["class Box:", '    """Doc."""', "    @property"]
     assert argus.compare_code(source, result.text).accepted
 
 
@@ -162,18 +164,18 @@ def test_multiline_signature_and_indentation_are_handled():
 
 
 def test_existing_docstring_is_never_replaced_and_the_model_is_not_asked():
-    source = 'def add(a, b):\n    """Written by a person."""\n    return a + b\n'
+    source = '"""Also by a person."""\n\ndef add(a, b):\n    """Written by a person."""\n    return a + b\n'
     backend = FakeBackend([reply("Machine text.")])
     result = docs(source, backend)
     assert result.text == source and not result.changed
-    assert statuses(result) == {"add": SKIPPED}
+    assert statuses(result) == {"add": SKIPPED, "<module>": SKIPPED}
     assert backend.prompts == []
 
 
 def test_body_on_the_def_line_is_left_alone():
     source = "def one(): return 1\n\ndef two():\n    return 2\n"
     result = docs(source, FakeBackend([reply("Doc.")]))
-    assert statuses(result) == {"one": SKIPPED, "two": ADDED}
+    assert statuses(result) == {"one": SKIPPED, "two": ADDED, "<module>": ADDED}
     assert "def one(): return 1" in result.text
 
 
@@ -190,7 +192,7 @@ def test_unparseable_file_is_returned_unchanged():
 def test_bad_reply_for_one_target_does_not_stop_the_others():
     backend = FakeBackend(["no marker here", reply("Doc.")])
     result = docs("def a():\n    pass\n\ndef b():\n    pass\n", backend)
-    assert statuses(result) == {"a": REJECTED, "b": ADDED}
+    assert statuses(result) == {"a": REJECTED, "b": ADDED, "<module>": ADDED}
     assert docstrings(result.text) == {"a": None, "b": "Doc."}
 
 
@@ -214,7 +216,7 @@ def test_insertion_that_fails_the_guard_is_dropped(monkeypatch):
     )
     result = docs("def a():\n    pass\n", FakeBackend([reply("Doc.")]))
     assert result.text == "def a():\n    pass\n" and not result.changed
-    assert statuses(result) == {"a": REJECTED}
+    assert statuses(result) == {"a": REJECTED, "<module>": REJECTED}
 
 
 # --- Byte-level care -------------------------------------------------------
@@ -231,7 +233,7 @@ def test_crlf_file_keeps_its_line_endings():
 def test_file_without_final_newline_stays_without_it():
     source = "def a():\n    return 1"
     result = docs(source, FakeBackend([reply("Doc.")]))
-    assert result.text == 'def a():\n    """Doc."""\n    return 1'
+    assert result.text == '"""Doc."""\n\ndef a():\n    """Doc."""\n    return 1'
 
 
 def test_non_ascii_text_survives():
@@ -273,7 +275,7 @@ def test_write_replaces_the_file_with_the_checked_text(tmp_path):
 
 def test_write_with_nothing_to_add_leaves_the_file_alone(tmp_path):
     path = tmp_path / "mod.py"
-    source = 'def a():\n    """Mine."""\n'
+    source = '"""Mine too."""\n\ndef a():\n    """Mine."""\n'
     path.write_bytes(source.encode())
     before = path.stat().st_mtime_ns
     assert run(path, write=True)[0] == 0
@@ -499,21 +501,22 @@ def test_comment_that_is_not_directly_above_its_statement_is_dropped(monkeypatch
 
 
 def test_docstring_stays_above_a_comment_on_the_first_statement():
-    backend = FakeBackend([reply("Run it."), comment_reply("S1: Start empty.")])
+    backend = FakeBackend([reply("Run it."), reply("Retry helpers."), comment_reply("S1: Start empty.")])
     result = clio.comment_source(RETRY, backend, mode="both")
-    assert statuses(result) == {"retry": ADDED, "retry S1": ADDED}
-    lines = result.text.splitlines()
+    assert statuses(result) == {"retry": ADDED, "<module>": ADDED, "retry S1": ADDED}
+    # Two lines down: the file's own docstring and an empty line come first.
+    lines = result.text.splitlines()[2:]
     assert lines[1:3] == ['    """Run it."""', "    # Start empty."]
     assert lines[3] == "    last = None"
     assert argus.compare_code(RETRY, result.text).accepted
     assert argus.check_inserted_lines(RETRY, result.text, result.inserted_lines).accepted
-    assert "DOCSTRING" in backend.prompts[0] and "COMMENTS" in backend.prompts[1]
+    assert "DOCSTRING" in backend.prompts[0] and "COMMENTS" in backend.prompts[2]
 
 
 def test_modes_ask_only_for_what_they_name():
     only_docs = FakeBackend([reply("Doc.")])
     clio.comment_source(RETRY, only_docs, mode="docstrings")
-    assert len(only_docs.prompts) == 1 and "DOCSTRING" in only_docs.prompts[0]
+    assert len(only_docs.prompts) == 2 and all("DOCSTRING" in prompt for prompt in only_docs.prompts)
     only_comments = FakeBackend(["COMMENTS: NONE"])
     clio.comment_source(RETRY, only_comments, mode="comments")
     assert len(only_comments.prompts) == 1 and "COMMENTS" in only_comments.prompts[0]
@@ -617,8 +620,8 @@ def test_inline_comments_are_opt_in():
     # By default only docstrings are asked for: no comment request reaches the model.
     backend = FakeBackend([reply("Run it.")])
     result = clio.comment_source(RETRY, backend)
-    assert len(backend.prompts) == 1 and "DOCSTRING" in backend.prompts[0]
-    assert statuses(result) == {"retry": ADDED}
+    assert len(backend.prompts) == 2 and all("DOCSTRING" in prompt for prompt in backend.prompts)
+    assert statuses(result) == {"retry": ADDED, "<module>": ADDED}
     assert "#" not in result.text
 
 
@@ -683,7 +686,7 @@ def test_comment_without_files_runs_on_the_changed_ones(repo, monkeypatch, capsy
     assert cli.main(["comment", "--config", str(repo / "absent.toml")]) == 0
     out = capsys.readouterr().out
     assert "a/../edited.py" in out and "dry run, nothing written" in out
-    assert "same.py" not in out and len(backend.prompts) == 1
+    assert "same.py" not in out and len(backend.prompts) == 2  # the function and the file
     assert (repo / "edited.py").read_text() == "def a():\n    return 1\n"
 
 

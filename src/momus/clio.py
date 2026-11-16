@@ -56,6 +56,11 @@ MAX_COMMENTS = 3
 
 # Width of a docstring line, counting the indentation.
 DOCSTRING_WIDTH = 79
+# Most lines of a file's outline shown to the model for the module docstring.
+# A first guess, not measured.
+MODULE_OUTLINE_LINES = 120
+# The name the file itself has in the outcomes.
+MODULE_NAME = "<module>"
 
 _DOC_MARKER = re.compile(r"\A\s*DOCSTRING:[ \t]*", re.IGNORECASE)
 _COMMENTS_MARKER = re.compile(r"\A\s*COMMENTS:[ \t]*", re.IGNORECASE)
@@ -67,6 +72,8 @@ _ECHO = re.compile(r"^(?:[ \t]*```|Code:)", re.MULTILINE)
 _ENDING = re.compile(r"\r\n|\r|\n")
 # A list entry such as "name: what it is" or "name (type): what it is".
 _ENTRY_LINE = re.compile(r"\s*[\w*]+( \([^)]*\))?:\s")
+# An encoding declaration, which Python only honours on line 1 or 2.
+_CODING = re.compile(r"coding[:=]")
 _FUNCTIONS = (ast.FunctionDef, ast.AsyncFunctionDef)
 _DEFINITIONS = (*_FUNCTIONS, ast.ClassDef)
 
@@ -104,7 +111,7 @@ class ClioResult:
 @dataclass(frozen=True)
 class _Target:
     name: str
-    kind: str  # "function", "method" or "class"
+    kind: str  # "function", "method", "class" or "module"
     code: str  # source shown to the model
     context: str  # one sentence of extra information for the model, or ""
     index: int  # 0-based line of the original before which the docstring goes
@@ -309,10 +316,66 @@ def _slot(node: ast.AST, lines: list[str], offset: int) -> tuple[int, str] | str
     return line_number - 1, indent
 
 
+# Find where a module docstring would go: `index`, or a string explaining why
+# the file is to be left alone. It goes before the first statement, and above
+# the comment lines that sit right on top of that statement, so a comment is
+# never separated from the code it describes. A `#!` line and an encoding
+# declaration stay first, where Python and the shell need them.
+def _module_slot(tree: ast.Module, lines: list[str]) -> int | str:
+    if not tree.body:
+        return "the file has no code"
+    first = tree.body[0]
+    if _is_docstring(first):
+        return "already has a docstring (not Momus's to replace)"
+    index = _first_line(first) - 1
+    if lines[index][:1] in (" ", "\t", "\f") or (first.col_offset and not first.decorator_list):
+        return "the first statement does not start its line"
+    while index > 0 and lines[index - 1].startswith("#"):
+        above = index - 1
+        if (above == 0 and lines[above].startswith("#!")) or (above < 2 and _CODING.search(lines[above])):
+            break
+        index = above
+    return index
+
+
+# The lines of a definition up to its body, then `...` in place of the body.
+# A definition written on one line is shown whole.
+def _stub(node: ast.stmt, lines: list[str], keep_open: bool = False) -> list[str]:
+    start, body_start = _first_line(node), _first_line(node.body[0])
+    if body_start <= node.lineno:
+        return [line.rstrip("\r\n") for line in lines[start - 1 : node.end_lineno]]
+    header = [line.rstrip("\r\n") for line in lines[start - 1 : body_start - 1]]
+    # Blank and comment lines between the header and the body are not header.
+    while header and (not header[-1].strip() or header[-1].lstrip().startswith("#")):
+        header.pop()
+    return header if keep_open else [*header, f"{_indent_of(lines[node.lineno - 1])}    ..."]
+
+
+# Show a whole file in few lines, for the module docstring: definitions keep
+# their header and lose their body, a class keeps the headers of its methods,
+# and any other statement is shown up to its third line.
+def _outline(tree: ast.Module, lines: list[str]) -> str:
+    rows: list[str] = []
+    for node in tree.body:
+        if isinstance(node, ast.ClassDef):
+            members = [child for child in node.body if isinstance(child, _DEFINITIONS)]
+            rows.extend(_stub(node, lines, keep_open=bool(members)))
+            for member in members:
+                rows.extend(_stub(member, lines))
+        elif isinstance(node, _FUNCTIONS):
+            rows.extend(_stub(node, lines))
+        else:
+            chunk = [line.rstrip("\r\n") for line in lines[_first_line(node) - 1 : node.end_lineno]]
+            rows.extend(chunk if len(chunk) <= 3 else [chunk[0], "..."])
+    if len(rows) > MODULE_OUTLINE_LINES:
+        rows = [*rows[:MODULE_OUTLINE_LINES], "..."]
+    return "\n".join(rows) + "\n"
+
+
 # List the statements of a body in source order, nested blocks included.
 #
 # Nested functions and classes count as one statement each and are not
-# entered: they are not targets of their own yet.
+# entered: they are targets of their own.
 def _statements(body: list[ast.stmt]) -> list[ast.stmt]:
     found: list[ast.stmt] = []
 
@@ -400,7 +463,7 @@ def _targets(source: str, lines: list[str], want_comments: bool):
                 # Show the class as code around the method instead of saying it
                 # in a sentence: small models copy such sentences into the
                 # docstring.
-                owner = name.split(".", 1)[0]
+                owner = name.rsplit(".", 2)[-2]
                 code = f"class {owner}:\n    ...\n\n{textwrap.indent(code, '    ')}"
                 doc_context = ""
             doc_targets.append(_Target(name, kind, code, doc_context, index, indent))
@@ -425,33 +488,40 @@ def _targets(source: str, lines: list[str], want_comments: bool):
         code = _numbered(node, piece_lines, numbers, offset)
         comment_targets.append(_CommentTarget(name, kind, code, context, slots))
 
+    # Handles the definitions inside `node`, at any depth: methods, functions
+    # defined inside functions, classes defined inside either.
+    def descend(node, name, kind, piece_lines, offset):
+        for child in _statements(node.body):
+            if not isinstance(child, _DEFINITIONS):
+                continue
+            child_name = f"{name}.{child.name}"
+            if isinstance(child, ast.ClassDef):
+                child_kind, context = "class", class_context
+            elif kind == "class":
+                child_kind, context = "method", f"This method belongs to the class {node.name}.\n\n"
+            else:
+                child_kind, context = "function", ""
+            consider(child, child_name, child_kind, context, piece_lines, offset)
+            descend(child, child_name, child_kind, piece_lines, offset)
+
+    class_context = "Document the class as a whole; its methods are documented separately.\n\n"
     for piece in split_source(source):
         if piece.kind not in ("function", "class"):
             continue
         piece_lines = argus.split_lines(piece.text)
         offset = piece.start_line - 1
         node = ast.parse(piece.text).body[0]
-        if piece.kind == "function":
-            consider(node, node.name, "function", "", piece_lines, offset)
-            continue
-        consider(
-            node,
-            node.name,
-            "class",
-            "Document the class as a whole; its methods are documented separately.\n\n",
-            piece_lines,
-            offset,
-        )
-        for child in node.body:
-            if isinstance(child, _FUNCTIONS):
-                consider(
-                    child,
-                    f"{node.name}.{child.name}",
-                    "method",
-                    f"This method belongs to the class {node.name}.\n\n",
-                    piece_lines,
-                    offset,
-                )
+        kind = "class" if piece.kind == "class" else "function"
+        consider(node, node.name, kind, class_context if kind == "class" else "", piece_lines, offset)
+        descend(node, node.name, kind, piece_lines, offset)
+
+    # The file itself comes last: it is the one target every file has.
+    tree = ast.parse(source)
+    slot = _module_slot(tree, lines)
+    if isinstance(slot, str):
+        doc_skips.append(Outcome(MODULE_NAME, SKIPPED, slot, "docstring"))
+    else:
+        doc_targets.append(_Target(MODULE_NAME, "module", _outline(tree, lines), "", slot, ""))
     return doc_targets, comment_targets, doc_skips, comment_skips
 
 
@@ -575,6 +645,9 @@ def comment_source(source: str, backend: Backend, mode: str = DEFAULT_MODE) -> C
             )
             continue
         block = format_docstring(text, target.indent, _ending_of(lines, target.index))
+        if target.kind == "module":
+            # A module docstring is set apart from the code by an empty line.
+            block.append(_ending_of(lines, target.index))
         try_insert(target.name, "docstring", target.index, block, None)
 
     for target in comment_targets:

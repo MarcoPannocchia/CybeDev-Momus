@@ -200,12 +200,13 @@ def test_ordinary_text_is_not_mistaken_for_a_copy(text):
 
 
 def test_docstring_copied_from_the_prompt_is_rejected():
-    source = "class Box:\n    x = 1\n"
+    source = '"""Shapes."""\n\nclass Box:\n    x = 1\n'
     echo = "DOCSTRING:\nA box.\n\nDocument the class as a whole; its methods are documented separately."
     result = clio.comment_source(source, FakeBackend([echo]), "docstrings")
     assert result.text == source
-    assert (result.outcomes[0].status, result.outcomes[0].cause) == ("rejected", "reply")
-    assert "copied from the instructions" in result.outcomes[0].reason
+    (box,) = [outcome for outcome in result.outcomes if outcome.name == "Box"]
+    assert (box.status, box.cause) == ("rejected", "reply")
+    assert "copied from the instructions" in box.reason
 
 
 def test_comment_copied_from_the_prompt_is_rejected():

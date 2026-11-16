@@ -90,17 +90,18 @@ def test_run_model_is_a_dry_run_and_records_outcomes_with_kind_and_cause(tmp_pat
     assert (outcomes["a"]["kind"], outcomes["a"]["status"]) == ("docstring", "added")
     assert (outcomes["b"]["status"], outcomes["b"]["cause"]) == ("rejected", "reply")
     assert '+    """First."""' in run.files[0].diff
-    assert len(run.requests) == 2
+    assert len(run.requests) == 3  # two functions and the file itself
 
 
 def test_summary_counts_and_the_main_metric(tmp_path):
     path = sample(tmp_path)
     run = bench.run_model("m1", UsageBackend(["DOCSTRING:\nFirst.", "junk"]), [path], "docstrings", {})
     stats = bench.summarize(run)
-    assert stats["docstrings_added"] == 1 and stats["docstrings_rejected"] == 1
-    assert stats["rejected_by_cause"] == {"reply": 1}
+    # The fake repeats its last reply, so the file's own docstring is rejected too.
+    assert stats["docstrings_added"] == 1 and stats["docstrings_rejected"] == 2
+    assert stats["rejected_by_cause"] == {"reply": 2}
     assert stats["accepted_total"] == 1 and stats["guard_acceptance"] == 1.0
-    assert stats["requests"] == 2 and stats["requests_failed"] == 0
+    assert stats["requests"] == 3 and stats["requests_failed"] == 0
     assert stats["prompt_tokens"] == 20 and stats["completion_tokens"] == 10
     assert stats["tokens_per_second"] > 0 and stats["accepted_per_minute"] > 0
 
@@ -146,7 +147,7 @@ def test_write_run_saves_raw_json_and_readable_markdown(tmp_path):
     assert json_path.name.endswith("_qwen2.5-coder-7b.json")
     data = json.loads(json_path.read_text())
     assert data["conditions"]["power_source"] == "mains"
-    assert data["summary"]["accepted_total"] == 2  # the fake repeats its one reply for both functions
+    assert data["summary"]["accepted_total"] == 3  # the fake repeats its one reply: two functions and the file
     assert data["requests"][0]["prompt"] and data["requests"][0]["reply"].startswith("DOCSTRING")
     text = md_path.read_text()
     assert "## Conditions" in text and "power_source: mains" in text and "```diff" in text
