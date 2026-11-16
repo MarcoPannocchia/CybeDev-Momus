@@ -7,6 +7,7 @@ added comments with a strong model) and ``bench`` (compare models).
 
 import argparse
 import difflib
+import os
 import sys
 from dataclasses import replace
 from pathlib import Path
@@ -14,7 +15,15 @@ from pathlib import Path
 from momus import argus, bench
 from momus.backends import Backend, BackendError
 from momus.critic import CriticError, drop_flagged, find_comments, read_git_baseline, review_routed
-from momus.clio import DEFAULT_MODE, MODES, ClioError, comment_source, read_text_exact, write_text_atomic
+from momus.clio import (
+    DEFAULT_MODE,
+    MODES,
+    ClioError,
+    changed_python_files,
+    comment_source,
+    read_text_exact,
+    write_text_atomic,
+)
 from momus.config import (
     build_local_backend,
     build_review_backend,
@@ -42,7 +51,12 @@ def build_parser() -> argparse.ArgumentParser:
     for name, help_text in COMMANDS.items():
         sub = subparsers.add_parser(name, help=help_text, description=help_text)
         if name == "comment":
-            sub.add_argument("files", nargs="+", type=Path, help="Python files to document")
+            sub.add_argument(
+                "files",
+                nargs="*",
+                type=Path,
+                help="Python files to document (default: the tracked .py files changed since the last commit)",
+            )
             sub.add_argument(
                 "--write",
                 action="store_true",
@@ -62,6 +76,13 @@ def build_parser() -> argparse.ArgumentParser:
                 "--base",
                 default="HEAD",
                 help="git reference holding the files as they were before (default: HEAD)",
+            )
+            sub.add_argument(
+                "--code-only",
+                action="store_true",
+                help="only require that the code is identical: also accept reformatting and "
+                "comments or docstrings that were edited or removed (default: accept added "
+                "comments and docstrings only)",
             )
         if name == "review":
             sub.add_argument("files", nargs="+", type=Path, help="files whose new comments to review")
@@ -142,15 +163,23 @@ def comment_command(
     return status
 
 
-def guard_command(files: list[Path], base: str = "HEAD", read_baseline=read_git_baseline, out=None) -> int:
+def guard_command(
+    files: list[Path],
+    base: str = "HEAD",
+    read_baseline=read_git_baseline,
+    out=None,
+    code_only: bool = False,
+) -> int:
     """Check that each of ``files`` is its text at ``base`` plus comments only.
 
     A file passes when both Argus checks accept it: the code is the same, and
     the only difference is added lines holding comments or docstrings. So a
     reformatted file, or one where an existing comment was edited or removed,
-    is rejected too, with a reason that says the code is the same. Prints one
-    line per file and never writes anything. Returns 0 if every file passed, and 1 if any was rejected or
-    could not be checked (unreadable, or no baseline in git).
+    is rejected too, with a reason that says the code is the same. With
+    ``code_only`` the first check alone decides, and those files pass. Prints
+    one line per file and never writes anything. Returns 0 if every file
+    passed, and 1 if any was rejected or could not be checked (unreadable, or
+    no baseline in git).
     """
     out = out or sys.stdout
     status = 0
@@ -166,6 +195,9 @@ def guard_command(files: list[Path], base: str = "HEAD", read_baseline=read_git_
         if not verdict.accepted:
             print(f"{path}: REJECTED - {verdict.reason}", file=out)
             status = 1
+            continue
+        if code_only:
+            print(f"{path}: ok - {verdict.reason}", file=out)
             continue
         try:
             added = find_comments(str(path), original, new)
@@ -244,6 +276,18 @@ def main(argv: list[str] | None = None) -> int:
         parser.print_help()
         return 0
     if args.command == "comment":
+        files = args.files
+        if not files:
+            try:
+                files = changed_python_files()
+            except ClioError as exc:
+                print(f"momus comment: cannot list the changed files: {exc}", file=sys.stderr)
+                return 1
+            if not files:
+                print("momus comment: no Python file changed since the last commit", file=sys.stderr)
+                return 0
+            # Shown relative to where the command runs, like the names git prints.
+            files = [Path(os.path.relpath(path)) for path in files]
         try:
             settings = load_local_settings(args.config)
             if args.model:
@@ -252,9 +296,9 @@ def main(argv: list[str] | None = None) -> int:
         except BackendError as exc:
             print(f"momus comment: {exc}", file=sys.stderr)
             return 1
-        return comment_command(args.files, backend, args.write, args.mode)
+        return comment_command(files, backend, args.write, args.mode)
     if args.command == "guard":
-        return guard_command(args.files, args.base)
+        return guard_command(args.files, args.base, code_only=args.code_only)
     if args.command == "review":
         try:
             settings = load_review_settings(args.config)

@@ -2,6 +2,7 @@
 
 import ast
 import io
+import subprocess
 import textwrap
 
 import pytest
@@ -9,6 +10,7 @@ import pytest
 from momus import argus, clio
 from momus.backends import BackendError
 from momus.backends.fake import FakeBackend
+from momus import cli
 from momus.cli import comment_command
 from momus.clio import ADDED, REJECTED, SKIPPED, ClioError, parse_reply
 
@@ -618,3 +620,80 @@ def test_inline_comments_are_opt_in():
     assert len(backend.prompts) == 1 and "DOCSTRING" in backend.prompts[0]
     assert statuses(result) == {"retry": ADDED}
     assert "#" not in result.text
+
+
+# --- The files changed since the last commit (plan §9) ----------------------
+
+
+def git(folder, *args):
+    subprocess.run(
+        ["git", "-C", str(folder), "-c", "user.name=t", "-c", "user.email=t@example.invalid", *args],
+        check=True,
+        capture_output=True,
+    )
+
+
+@pytest.fixture
+def repo(tmp_path):
+    """A repository with one commit holding four files, three of them Python."""
+    (tmp_path / "pkg").mkdir()
+    for name in ("same.py", "edited.py", "gone.py", "notes.txt", "pkg/staged.py"):
+        (tmp_path / name).write_text("x = 1\n")
+    git(tmp_path, "init", "-q")
+    git(tmp_path, "add", ".")
+    git(tmp_path, "commit", "-q", "-m", "x")
+    return tmp_path
+
+
+def test_changed_files_are_the_tracked_python_files_that_differ_from_the_commit(repo):
+    (repo / "edited.py").write_text("x = 2\n")
+    (repo / "pkg" / "staged.py").write_text("x = 3\n")
+    git(repo, "add", "pkg/staged.py")
+    (repo / "notes.txt").write_text("changed, but not Python\n")
+    (repo / "gone.py").unlink()
+    (repo / "untracked.py").write_text("x = 4\n")
+    expected = [repo / "edited.py", repo / "pkg" / "staged.py"]
+    assert clio.changed_python_files(repo) == expected
+    # Asked from a subfolder, the whole repository is still covered.
+    assert clio.changed_python_files(repo / "pkg") == expected
+
+
+def test_no_change_gives_an_empty_list(repo):
+    assert clio.changed_python_files(repo) == []
+
+
+def test_changed_files_need_a_repository_with_a_commit(tmp_path):
+    with pytest.raises(ClioError):
+        clio.changed_python_files(tmp_path)
+    git(tmp_path, "init", "-q")
+    with pytest.raises(ClioError):
+        clio.changed_python_files(tmp_path)
+
+
+def test_comment_without_files_runs_on_the_changed_ones(repo, monkeypatch, capsys):
+    (repo / "edited.py").write_text("def a():\n    return 1\n")
+    (repo / "same.py").touch()
+    backend = FakeBackend([reply("Doc.")])
+    monkeypatch.setattr(cli, "build_local_backend", lambda settings: backend)
+    monkeypatch.chdir(repo / "pkg")
+    assert cli.main(["comment", "--config", str(repo / "absent.toml")]) == 0
+    out = capsys.readouterr().out
+    assert "a/../edited.py" in out and "dry run, nothing written" in out
+    assert "same.py" not in out and len(backend.prompts) == 1
+    assert (repo / "edited.py").read_text() == "def a():\n    return 1\n"
+
+
+def test_comment_without_files_and_without_changes_calls_no_model(repo, monkeypatch, capsys):
+    def no_backend(settings):
+        raise AssertionError("no backend should be built")
+
+    monkeypatch.setattr(cli, "build_local_backend", no_backend)
+    monkeypatch.chdir(repo)
+    assert cli.main(["comment"]) == 0
+    assert "no Python file changed" in capsys.readouterr().err
+
+
+def test_comment_without_files_outside_a_repository_fails(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    assert cli.main(["comment"]) == 1
+    assert "cannot list the changed files" in capsys.readouterr().err

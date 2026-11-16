@@ -17,6 +17,7 @@ import io
 import os
 import re
 import shutil
+import subprocess
 import tempfile
 import textwrap
 import tokenize
@@ -656,6 +657,42 @@ def comment_source(source: str, backend: Backend, mode: str = DEFAULT_MODE) -> C
 
 
 # --- Files -----------------------------------------------------------------
+
+
+def _git(folder: Path, *args: str) -> str:
+    """Run a git command in ``folder`` and return what it printed.
+
+    Raises:
+        ClioError: if git cannot be run or reports a failure.
+    """
+    try:
+        done = subprocess.run(
+            ["git", "-C", str(folder), *args], capture_output=True, timeout=30, check=False
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise ClioError(f"cannot run git: {exc}") from exc
+    if done.returncode != 0:
+        detail = done.stderr.decode("utf-8", errors="replace").strip().splitlines()
+        raise ClioError(detail[0] if detail else "git failed")
+    return done.stdout.decode("utf-8", errors="surrogateescape")
+
+
+def changed_python_files(folder: Path = Path(".")) -> list[Path]:
+    """List the ``.py`` files that differ from the last commit.
+
+    These are the files git tracks whose content, staged or not, is not the
+    one in ``HEAD``, anywhere in the repository that holds ``folder``. Deleted
+    files are left out. So are new files git does not track yet: they have no
+    committed version to compare with.
+
+    Raises:
+        ClioError: if ``folder`` is not in a git repository, the repository
+            has no commit yet, or git cannot be run.
+    """
+    top = Path(_git(folder, "rev-parse", "--show-toplevel").rstrip("\r\n"))
+    # -z: names come out as they are, separated by NUL, with no quoting.
+    names = _git(folder, "diff", "--name-only", "-z", "--diff-filter=d", "HEAD", "--").split("\0")
+    return [top / name for name in names if name.endswith(".py")]
 
 
 def read_text_exact(path: Path) -> str:

@@ -471,6 +471,29 @@ def test_guard_rejects_an_existing_comment_that_was_edited(tmp_path):
     assert status == 1 and "REJECTED - same code, but" in out
 
 
+def test_guard_code_only_accepts_what_leaves_the_code_identical(tmp_path):
+    for text, baseline in [
+        (WITH_COMMENTS.replace("debugger", "person"), WITH_COMMENTS),  # comment edited
+        (ORIGINAL, WITH_COMMENTS),  # comments removed
+        (ORIGINAL.replace("a + b", "a+b"), ORIGINAL),  # reformatted
+    ]:
+        path = tmp_path / "m.py"
+        path.write_text(text)
+        out = io.StringIO()
+        assert guard_command([path], read_baseline=lambda p, ref: baseline, out=out) == 1
+        assert guard_command([path], read_baseline=lambda p, ref: baseline, out=out, code_only=True) == 0
+    assert out.getvalue().endswith("ok - code identical apart from comments and docstrings\n")
+
+
+def test_guard_code_only_still_rejects_a_code_change(tmp_path):
+    path = tmp_path / "m.py"
+    path.write_text(WITH_COMMENTS.replace("a + b", "a - b"))
+    out = io.StringIO()
+    assert guard_command([path], read_baseline=lambda p, ref: ORIGINAL, out=out, code_only=True) == 1
+    assert "REJECTED - code differs from the original" in out.getvalue()
+    assert main(["guard", str(path), "--code-only"]) == 1  # no baseline: still a failure
+
+
 def test_guard_fails_when_a_file_cannot_be_checked(tmp_path, capsys):
     def no_baseline(path, ref):
         raise CriticError("no baseline at HEAD")
