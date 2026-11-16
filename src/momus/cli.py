@@ -11,7 +11,7 @@ import sys
 from dataclasses import replace
 from pathlib import Path
 
-from momus import bench
+from momus import argus, bench
 from momus.backends import Backend, BackendError
 from momus.critic import CriticError, drop_flagged, find_comments, read_git_baseline, review_routed
 from momus.clio import DEFAULT_MODE, MODES, ClioError, comment_source, read_text_exact, write_text_atomic
@@ -148,8 +148,8 @@ def guard_command(files: list[Path], base: str = "HEAD", read_baseline=read_git_
     A file passes when both Argus checks accept it: the code is the same, and
     the only difference is added lines holding comments or docstrings. So a
     reformatted file, or one where an existing comment was edited or removed,
-    is rejected like a code change. Prints one line per file and never writes
-    anything. Returns 0 if every file passed, and 1 if any was rejected or
+    is rejected too, with a reason that says the code is the same. Prints one
+    line per file and never writes anything. Returns 0 if every file passed, and 1 if any was rejected or
     could not be checked (unreadable, or no baseline in git).
     """
     out = out or sys.stdout
@@ -161,10 +161,16 @@ def guard_command(files: list[Path], base: str = "HEAD", read_baseline=read_git_
             print(f"{path}: cannot check: {exc}", file=sys.stderr)
             status = 1
             continue
+        # Asked first so the answer says whether the code itself changed.
+        verdict = argus.compare_code(original, new)
+        if not verdict.accepted:
+            print(f"{path}: REJECTED - {verdict.reason}", file=out)
+            status = 1
+            continue
         try:
             added = find_comments(str(path), original, new)
         except CriticError as exc:
-            print(f"{path}: REJECTED - {exc}", file=out)
+            print(f"{path}: REJECTED - same code, but {exc}", file=out)
             status = 1
             continue
         docstrings = sum(comment.kind == "docstring" for comment in added)

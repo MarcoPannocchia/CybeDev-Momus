@@ -468,7 +468,7 @@ def test_guard_rejects_anything_but_added_comments(tmp_path, text):
 def test_guard_rejects_an_existing_comment_that_was_edited(tmp_path):
     edited = WITH_COMMENTS.replace("debugger", "person")
     status, out, _ = run_guard(tmp_path, edited, baseline=WITH_COMMENTS)
-    assert status == 1 and "REJECTED" in out
+    assert status == 1 and "REJECTED - same code, but" in out
 
 
 def test_guard_fails_when_a_file_cannot_be_checked(tmp_path, capsys):
@@ -490,7 +490,7 @@ def test_guard_checks_every_file_and_fails_if_one_does(tmp_path):
     out = io.StringIO()
     assert guard_command([bad, good], read_baseline=lambda p, ref: ORIGINAL, out=out) == 1
     assert out.getvalue().splitlines() == [
-        f"{bad}: REJECTED - not a comments-only change: code differs from the original",
+        f"{bad}: REJECTED - code differs from the original",
         f"{good}: ok - 1 docstring(s) and 1 comment(s) added",
     ]
 
@@ -510,6 +510,12 @@ def test_guard_runs_from_the_command_line_against_git(tmp_path, capsys):
     git("commit", "-q", "-m", "x")
     path.write_text(WITH_COMMENTS)
     assert main(["guard", str(path)]) == 0
+    assert "1 docstring(s) and 1 comment(s) added" in capsys.readouterr().out
+    git("commit", "-q", "-a", "-m", "y")
+    assert main(["guard", str(path)]) == 0
+    assert "0 docstring(s) and 0 comment(s) added" in capsys.readouterr().out
+    assert main(["guard", str(path), "--base", "HEAD~1"]) == 0
+    assert "1 docstring(s) and 1 comment(s) added" in capsys.readouterr().out
     path.write_text(WITH_COMMENTS.replace("return total", "return a"))
-    assert main(["guard", str(path), "--base", "HEAD"]) == 1
+    assert main(["guard", str(path)]) == 1
     assert "REJECTED" in capsys.readouterr().out
