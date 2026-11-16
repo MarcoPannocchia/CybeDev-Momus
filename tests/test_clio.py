@@ -625,6 +625,25 @@ def test_inline_comments_are_opt_in():
     assert "#" not in result.text
 
 
+def test_docstring_goes_right_under_the_header_above_a_comment_that_opens_the_body():
+    source = (
+        '"""Mod."""\n'
+        "def f(\n    a,  # the input\n):\n"
+        "\n"
+        "    # Doubled because sizes come in halves.\n"
+        "    return a * 2\n"
+    )
+    result = docs(source, FakeBackend([reply("Doc.")]))
+    assert result.text.splitlines()[3:8] == [
+        "):",
+        '    """Doc."""',
+        "",
+        "    # Doubled because sizes come in halves.",
+        "    return a * 2",
+    ]
+    assert argus.check_inserted_lines(source, result.text, result.inserted_lines).accepted
+
+
 # --- The file's own docstring and nested definitions (plan §9) --------------
 
 
@@ -733,11 +752,13 @@ def test_definitions_inside_other_definitions_get_docstrings_too():
     assert len(backend.prompts) == len(names)
 
 
-def test_a_nested_definition_is_shown_on_its_own_and_a_method_inside_its_own_class():
+def test_a_nested_definition_is_shown_inside_the_header_of_what_holds_it():
     _, backend = checked(NESTED)
     shown = [code_shown(prompt) for prompt in backend.prompts]
-    assert shown[1] == "def key(item):\n    return item.size\n\n"
-    assert "docstring for the function shown below" in backend.prompts[1]
+    # A function inside a function comes with the header of the outer one,
+    # which is where a name such as `items` would come from.
+    assert shown[1] == "def outer(items):\n    ...\n\n    def key(item):\n        return item.size\n\n"
+    assert "docstring for the inner function key shown below" in backend.prompts[1]
     assert shown[3] == "class Local:\n    ...\n\n    def run(self):\n        return 1\n\n"
     assert "docstring for the method shown below" in backend.prompts[3]
     assert shown[6].startswith("class Meta:\n    ...\n\n    def name(self):")

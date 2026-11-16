@@ -111,7 +111,7 @@ class ClioResult:
 @dataclass(frozen=True)
 class _Target:
     name: str
-    kind: str  # "function", "method", "class" or "module"
+    kind: str  # "function", "inner function NAME", "method", "class" or "module"
     code: str  # source shown to the model
     context: str  # one sentence of extra information for the model, or ""
     index: int  # 0-based line of the original before which the docstring goes
@@ -302,8 +302,8 @@ def _starts_line(statement: ast.stmt, line: str, indent: str) -> bool:
 # Find where a docstring would go in `node`.
 #
 # Returns `(index, indent)`, or a string explaining why the node is to be
-# left alone. The docstring goes right before the first statement of the
-# body, which must start its own line.
+# left alone. The docstring goes right under the header and takes the indent
+# of the first statement of the body, which must start its own line.
 def _slot(node: ast.AST, lines: list[str], offset: int) -> tuple[int, str] | str:
     first = node.body[0]
     if _is_docstring(first):
@@ -313,7 +313,12 @@ def _slot(node: ast.AST, lines: list[str], offset: int) -> tuple[int, str] | str
     indent = _indent_of(line)
     if not _starts_line(first, line, indent):
         return "the body does not start on its own indented line"
-    return line_number - 1, indent
+    # Right under the header, above any comment or empty line that opens the
+    # body: a docstring below a comment reads as if it belonged to it.
+    index = line_number - 1
+    while index > 0 and (not lines[index - 1].strip() or lines[index - 1].lstrip().startswith("#")):
+        index -= 1
+    return index, indent
 
 
 # Find where a module docstring would go: `index`, or a string explaining why
@@ -451,7 +456,7 @@ def _targets(source: str, lines: list[str], want_comments: bool):
     comment_skips: list[Outcome] = []
     commented = _commented_lines(source) if want_comments else set()
 
-    def consider(node, name, kind, context, piece_lines, offset):
+    def consider(node, name, kind, context, piece_lines, offset, parent=None):
         slot = _slot(node, lines, offset)
         if isinstance(slot, str):
             doc_skips.append(Outcome(name, SKIPPED, slot, "docstring"))
@@ -459,6 +464,15 @@ def _targets(source: str, lines: list[str], want_comments: bool):
             index, indent = slot
             code = _code_of(node, piece_lines)
             doc_context = context
+            doc_kind = kind
+            if kind == "function" and isinstance(parent, _FUNCTIONS):
+                # Show the header of the function around it. Seen alone, a
+                # wrapper had an argument of the outer function documented as
+                # its own (qwen2.5-coder:7b, 2026-11-16). The name is in the
+                # request because two functions are now on show.
+                outer = textwrap.dedent("\n".join(_stub(parent, piece_lines)) + "\n")
+                code = f"{outer}\n{textwrap.indent(code, '    ')}"
+                doc_kind = f"inner function {node.name}"
             if kind == "method":
                 # Show the class as code around the method instead of saying it
                 # in a sentence: small models copy such sentences into the
@@ -466,7 +480,7 @@ def _targets(source: str, lines: list[str], want_comments: bool):
                 owner = name.rsplit(".", 2)[-2]
                 code = f"class {owner}:\n    ...\n\n{textwrap.indent(code, '    ')}"
                 doc_context = ""
-            doc_targets.append(_Target(name, kind, code, doc_context, index, indent))
+            doc_targets.append(_Target(name, doc_kind, code, doc_context, index, indent))
         if not want_comments or kind == "class":
             return
         eligible = []
@@ -501,7 +515,7 @@ def _targets(source: str, lines: list[str], want_comments: bool):
                 child_kind, context = "method", f"This method belongs to the class {node.name}.\n\n"
             else:
                 child_kind, context = "function", ""
-            consider(child, child_name, child_kind, context, piece_lines, offset)
+            consider(child, child_name, child_kind, context, piece_lines, offset, parent=node)
             descend(child, child_name, child_kind, piece_lines, offset)
 
     class_context = "Document the class as a whole; its methods are documented separately.\n\n"
