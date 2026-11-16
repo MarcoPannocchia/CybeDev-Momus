@@ -633,9 +633,9 @@ def git(folder, *args):
     )
 
 
+# A repository with one commit holding five files, four of them Python.
 @pytest.fixture
 def repo(tmp_path):
-    """A repository with one commit holding four files, three of them Python."""
     (tmp_path / "pkg").mkdir()
     for name in ("same.py", "edited.py", "gone.py", "notes.txt", "pkg/staged.py"):
         (tmp_path / name).write_text("x = 1\n")
@@ -645,14 +645,18 @@ def repo(tmp_path):
     return tmp_path
 
 
-def test_changed_files_are_the_tracked_python_files_that_differ_from_the_commit(repo):
+def test_changed_files_are_the_python_files_that_differ_from_the_commit(repo):
     (repo / "edited.py").write_text("x = 2\n")
     (repo / "pkg" / "staged.py").write_text("x = 3\n")
     git(repo, "add", "pkg/staged.py")
     (repo / "notes.txt").write_text("changed, but not Python\n")
     (repo / "gone.py").unlink()
-    (repo / "untracked.py").write_text("x = 4\n")
-    expected = [repo / "edited.py", repo / "pkg" / "staged.py"]
+    (repo / "pkg" / "new.py").write_text("x = 4\n")
+    (repo / "new.txt").write_text("new, but not Python\n")
+    (repo / ".gitignore").write_text("build/\n")
+    (repo / "build").mkdir()
+    (repo / "build" / "ignored.py").write_text("x = 5\n")
+    expected = [repo / "edited.py", repo / "pkg" / "new.py", repo / "pkg" / "staged.py"]
     assert clio.changed_python_files(repo) == expected
     # Asked from a subfolder, the whole repository is still covered.
     assert clio.changed_python_files(repo / "pkg") == expected
@@ -690,7 +694,7 @@ def test_comment_without_files_and_without_changes_calls_no_model(repo, monkeypa
     monkeypatch.setattr(cli, "build_local_backend", no_backend)
     monkeypatch.chdir(repo)
     assert cli.main(["comment"]) == 0
-    assert "no Python file changed" in capsys.readouterr().err
+    assert "no Python file changed or created" in capsys.readouterr().err
 
 
 def test_comment_without_files_outside_a_repository_fails(tmp_path, monkeypatch, capsys):

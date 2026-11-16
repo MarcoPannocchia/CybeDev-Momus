@@ -659,12 +659,9 @@ def comment_source(source: str, backend: Backend, mode: str = DEFAULT_MODE) -> C
 # --- Files -----------------------------------------------------------------
 
 
+# Runs a git command in `folder` and returns what it printed. Raises ClioError
+# if git cannot be run or reports a failure.
 def _git(folder: Path, *args: str) -> str:
-    """Run a git command in ``folder`` and return what it printed.
-
-    Raises:
-        ClioError: if git cannot be run or reports a failure.
-    """
     try:
         done = subprocess.run(
             ["git", "-C", str(folder), *args], capture_output=True, timeout=30, check=False
@@ -677,22 +674,21 @@ def _git(folder: Path, *args: str) -> str:
     return done.stdout.decode("utf-8", errors="surrogateescape")
 
 
+# Lists the `.py` files that differ from the last commit, anywhere in the
+# repository that holds `folder`, sorted by name: the files git tracks whose
+# content, staged or not, is not the one in `HEAD`, and the new files git does
+# not track yet. Deleted files are left out, and so is anything `.gitignore`
+# excludes. Raises ClioError if `folder` is not in a git repository, the
+# repository has no commit yet, or git cannot be run.
 def changed_python_files(folder: Path = Path(".")) -> list[Path]:
-    """List the ``.py`` files that differ from the last commit.
-
-    These are the files git tracks whose content, staged or not, is not the
-    one in ``HEAD``, anywhere in the repository that holds ``folder``. Deleted
-    files are left out. So are new files git does not track yet: they have no
-    committed version to compare with.
-
-    Raises:
-        ClioError: if ``folder`` is not in a git repository, the repository
-            has no commit yet, or git cannot be run.
-    """
     top = Path(_git(folder, "rev-parse", "--show-toplevel").rstrip("\r\n"))
     # -z: names come out as they are, separated by NUL, with no quoting.
-    names = _git(folder, "diff", "--name-only", "-z", "--diff-filter=d", "HEAD", "--").split("\0")
-    return [top / name for name in names if name.endswith(".py")]
+    names = set(_git(folder, "diff", "--name-only", "-z", "--diff-filter=d", "HEAD", "--").split("\0"))
+    # --exclude-standard: without it git would also list every ignored file,
+    # the virtual environment included. Run from the top, because `ls-files`
+    # only looks below the folder it is run in.
+    names.update(_git(top, "ls-files", "--others", "--exclude-standard", "-z").split("\0"))
+    return [top / name for name in sorted(names) if name.endswith(".py")]
 
 
 def read_text_exact(path: Path) -> str:

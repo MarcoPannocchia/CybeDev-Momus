@@ -466,10 +466,12 @@ momus/
 - [x] Reads the given files or the modified ones (`git diff --name-only`),
       splits them, sends each piece to the local model, cleans the output,
       passes it to Argus — the "modified ones" half built 2026-11-16: `momus
-      comment` with no file names runs on the tracked `.py` files that differ
-      from the last commit (staged or not), anywhere in the repository.
-      Deleted files are left out. **New files git does not track yet are not
-      picked up** (they are not in `git diff`); name them on the command line.
+      comment` with no file names runs on the `.py` files that differ from the
+      last commit (staged or not) and on new files git does not track yet
+      (added the same day, decided by the maintainer), anywhere in the
+      repository. Deleted files and files excluded by `.gitignore` are left
+      out. A new file can be commented but not yet reviewed: `momus review`
+      and `momus guard` need a committed version to compare with.
       The listing was run for real on this repository; `momus comment` with
       no file names was **not** run with a real model, only with the fake one
 - [ ] (Docstring prompt `src/momus/prompts/clio.txt` and inline-comment

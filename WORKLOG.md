@@ -3,6 +3,52 @@
 Tests run, choices made and why, newest first. Maintained by the `work-log`
 skill. User-facing changes are summarized in [CHANGELOG.md](CHANGELOG.md).
 
+## 2026-11-16 — Untracked files in `momus comment`; comments instead of docstrings in new code (plan §9)
+
+**Changed**
+- `src/momus/clio.py`: `changed_python_files()` also lists new files git does
+  not track (`git ls-files --others --exclude-standard`); the result is sorted
+  by name
+- `src/momus/cli.py`: help text and the "nothing changed" message say "changed
+  or created"
+- `src/momus/clio.py`, `src/momus/cli.py`, `tests/test_clio.py`: the docstrings
+  of the four things written today (`_git`, `changed_python_files`,
+  `guard_command`, the `repo` fixture) became `#` comments above them. Older
+  docstrings were not touched
+- `tests/test_clio.py`: the changed-files test now also has an untracked
+  Python file, an untracked text file and an ignored Python file
+- `plan-Momus.md` §9, `CHANGELOG.md`
+
+**Tests**
+- Baseline before changes: `.venv/bin/pytest -q` — 383 passed, 1 deselected.
+  After: 383 passed, 1 deselected (no test added; one extended)
+- Mutation check by hand, three deliberate bugs (ignored files listed,
+  untracked files looked for only below the current folder, untracked files
+  not listed): each caught
+- Real run on this repository: with a throwaway untracked `.py` file in the
+  root, the listing showed it next to the three modified files and showed
+  nothing from `.venv/`. The file was deleted afterwards
+- Not run: `momus comment` with no file names against a real model; Python
+  other than 3.12.3
+
+**Decisions**
+- Untracked files are included — decided by the maintainer
+- Files matched by `.gitignore` are left out — assistant's choice: without
+  that, every file of the virtual environment would be listed
+- New code written by the assistant uses `#` comments, not docstrings —
+  decided by the maintainer. Applied to today's code only; whether the older
+  docstrings in `src/` and `tests/` should be converted was not asked and not
+  done. This is about the repository's own code, not about what Clio
+  generates: `momus comment` still writes docstrings by default
+
+**Open / next**
+- A repository with no commit yet is still an error for `momus comment`
+  without file names, even though its files are all untracked
+- The convention about comments is not written in `CLAUDE.md`
+- Next on the list of `plan-Momus.md` §15: module docstrings and nested
+  functions in Clio
+- Uncommitted: everything listed under "Changed"
+
 ## 2026-11-16 — `momus comment` on the changed files; `momus guard --code-only` (plan §9, §7)
 
 **Changed**

@@ -55,7 +55,7 @@ def build_parser() -> argparse.ArgumentParser:
                 "files",
                 nargs="*",
                 type=Path,
-                help="Python files to document (default: the tracked .py files changed since the last commit)",
+                help="Python files to document (default: the .py files changed or created since the last commit)",
             )
             sub.add_argument(
                 "--write",
@@ -163,6 +163,14 @@ def comment_command(
     return status
 
 
+# Checks that each of `files` is its text at `base` plus comments only. A file
+# passes when both Argus checks accept it: the code is the same, and the only
+# difference is added lines holding comments or docstrings. So a reformatted
+# file, or one where an existing comment was edited or removed, is rejected
+# too, with a reason that says the code is the same. With `code_only` the
+# first check alone decides, and those files pass. Prints one line per file
+# and never writes anything. Returns 0 if every file passed, and 1 if any was
+# rejected or could not be checked (unreadable, or no baseline in git).
 def guard_command(
     files: list[Path],
     base: str = "HEAD",
@@ -170,17 +178,6 @@ def guard_command(
     out=None,
     code_only: bool = False,
 ) -> int:
-    """Check that each of ``files`` is its text at ``base`` plus comments only.
-
-    A file passes when both Argus checks accept it: the code is the same, and
-    the only difference is added lines holding comments or docstrings. So a
-    reformatted file, or one where an existing comment was edited or removed,
-    is rejected too, with a reason that says the code is the same. With
-    ``code_only`` the first check alone decides, and those files pass. Prints
-    one line per file and never writes anything. Returns 0 if every file
-    passed, and 1 if any was rejected or could not be checked (unreadable, or
-    no baseline in git).
-    """
     out = out or sys.stdout
     status = 0
     for path in files:
@@ -284,7 +281,7 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"momus comment: cannot list the changed files: {exc}", file=sys.stderr)
                 return 1
             if not files:
-                print("momus comment: no Python file changed since the last commit", file=sys.stderr)
+                print("momus comment: no Python file changed or created since the last commit", file=sys.stderr)
                 return 0
             # Shown relative to where the command runs, like the names git prints.
             files = [Path(os.path.relpath(path)) for path in files]
