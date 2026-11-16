@@ -589,6 +589,23 @@ momus/
         does not contain comments; and the fingerprints stored in the record
         may stop matching if the Python version changes how `ast` prints
         nodes (not verified), which would drop ownership, the safe direction
+- [x] **The file's own docstring and nested definitions** — built 2026-11-16.
+      Clio now also asks for (a) a module docstring, when the file has code
+      and no docstring, and (b) a docstring for every definition inside
+      another one, at any depth: functions inside functions, classes inside
+      functions or classes, and their methods. Nested functions are offered
+      for inline comments too. For the module docstring the model is shown an
+      **outline** of the file (headers with `...` for bodies, other statements
+      up to three lines, at most 120 lines: a first guess, not measured), and
+      only the first paragraph of its answer is kept. The docstring goes
+      before the first statement and above a comment sitting directly on it,
+      after a `#!` line and an encoding line, and is followed by one empty
+      line. Every file therefore costs one more model call. Run once with a
+      real model (`qwen2.5-coder:7b`, dry run, `async_tools.py`): all 8
+      insertions passed both Argus checks. **Seen in that run:** the docstring
+      of a nested `wrapper` described a variable of the outer function as its
+      own argument, since a nested function is shown without the code around
+      it. Not measured: how often that happens, and the 1.5B
 - [ ] An existing docstring or comment that Momus does not own is never
       replaced (§16.7, ownership): where one exists, Clio skips that piece
 - **Done when:** on `examples/retry.py` it yields a diff containing only the
@@ -795,12 +812,15 @@ momus/
 
 **Resume here (state at the end of 2026-11-16)**
 
-- `.venv/bin/pytest` gives 383 passed, 1 deselected
+- `.venv/bin/pytest` gives 398 passed, 1 deselected
 - Done 2026-11-16: the real run of `momus review --drop` (§10); `momus guard`
-  with `--code-only` (§7); `momus comment` on the changed files (§9)
+  with `--code-only` (§7); `momus comment` on the changed and new files, and
+  module docstrings and nested definitions in Clio (§9). The repository's own
+  code now uses `#` comments instead of docstrings (rule in `CLAUDE.md`)
 - Next, in the maintainer's order of priority (docstrings first, inline
   comments later):
-  - module docstrings and nested functions are not covered (§9)
+  - a nested function is shown to the model without the function around it,
+    and one real docstring was wrong because of that (§9)
   - `momus bench` does not call the reviewer, so its "flagged by the
     reviewer" column is empty (§11)
   - the `anthropic` review backend has never been run against the real API

@@ -3,6 +3,108 @@
 Tests run, choices made and why, newest first. Maintained by the `work-log`
 skill. User-facing changes are summarized in [CHANGELOG.md](CHANGELOG.md).
 
+## 2026-11-16 — Clio: the file's own docstring and nested definitions (plan §9)
+
+**Changed**
+- `src/momus/clio.py`: `_module_slot()`, `_stub()`, `_outline()`; `_targets()`
+  now walks into definitions at any depth (`descend`) and adds the file as a
+  last target; a module docstring keeps only its first paragraph and gets an
+  empty line after it
+- `tests/test_clio.py`: 15 new test cases. 16 existing tests in `test_clio.py`,
+  `test_bench.py` and `test_quality.py` updated, because each of them counted
+  on a file getting no docstring of its own
+- `plan-Momus.md` §9, §15; `CHANGELOG.md`
+
+**Tests**
+- Baseline before changes: `.venv/bin/pytest -q` — 383 passed, 1 deselected.
+  After: 398 passed, 1 deselected (integration)
+- The 16 tests that failed after the change were read one by one. Each was
+  asserting the old behaviour (number of requests, exact outcomes, exact
+  text); none was hiding a fault. In two of them I gave the sample a module
+  docstring of its own, so they still test what their name says (an existing
+  docstring is not replaced; nothing to add means nothing written)
+- Mutation check by hand, nine deliberate bugs (existing module docstring
+  replaced, docstring above the `#!` line, docstring between a comment and its
+  statement, no empty line after, nested definitions not entered, wrong owner
+  class shown for a method, bodies shown in the outline, outline not capped,
+  whole reply kept for the file): each caught
+- A mistake of mine in a new test: I gave the fake two replies for a file
+  where only one request is made, so the wrong reply reached the nested
+  function. The code was right; the test was fixed
+- Real run, dry run only: `momus comment benchmarks/samples/async_tools.py
+  --model qwen2.5-coder:7b`, on mains power, model not loaded beforehand
+  (`ollama ps` empty), twice. 8 targets, 8 added: 4 top-level functions, 3
+  nested ones and the file. The file was unchanged afterwards. The first run
+  took 2 min 40 s by the shell's clock; the second was not timed. Not a
+  benchmark: other programs were open
+- What the real run showed:
+  - the file's docstring started well ("Decorator and utility functions for
+    asynchronous programming and caching.") and went on with a 22-line list of
+    every function and its arguments. Fixed by keeping the first paragraph
+    only; the fix was tested with a reply of that shape, **not re-run with the
+    model**
+  - `memoize.wrapper` got "Args: func: The function to be cached", but `func`
+    belongs to the outer function, and the entry after it was indented wrongly.
+    Not fixed
+- By hand, not as tests: `critic.find_comments()` reads the new output, and
+  `drop_flagged()` removes a module docstring with Argus accepting the result.
+  The empty line that came with the docstring stays behind
+- Not run: the 1.5B, 16B and 30B; `--write` with a real model on the new
+  targets; `momus review` with the real reviewer on a module docstring;
+  Python other than 3.12.3
+
+**Decisions** (all the assistant's choice, open to change)
+- The model sees an outline of the file, not the file: a whole file can be
+  longer than a small model's context, and the bodies are already described
+  by the functions' own docstrings
+- First paragraph only for the file's docstring — because of the real reply
+  above. Done in code and not in the prompt: a rule in the prompt depends on
+  the model obeying it
+- The file is asked about last, so the replies to the definitions keep their
+  order. Its outcome is named `<module>`
+- The docstring goes above a comment that touches the first statement, and
+  below a comment block followed by an empty line (a licence header)
+- Nested definitions are shown on their own, without the function around them
+- No setting to switch the file's docstring off
+
+**Open / next**
+- For the maintainer: a nested function shown alone can get a docstring that
+  is wrong about outer variables. Options: show the outer function's header
+  above it, or leave tiny nested helpers alone
+- For the maintainer: every tiny nested helper (a sort key, a wrapper) now
+  gets a docstring. Is that wanted, or should short ones be skipped?
+- Next on the list of `plan-Momus.md` §15: `momus bench` calling the reviewer
+- Uncommitted: `src/momus/clio.py`, `tests/test_clio.py`, `plan-Momus.md`,
+  `CHANGELOG.md`, `WORKLOG.md`
+
+## 2026-11-16 — The project's own docstrings turned into comments (outside plan)
+
+**Changed**
+- Every `.py` file in `src/` and `tests/` except `src/momus/__init__.py` (23
+  files): each docstring became a `#` comment block above its definition, or
+  at the top of the file for a module. A class or function whose body was
+  only a docstring now has `pass`
+- `CLAUDE.md`: the rule, under "How to work with the maintainer"
+
+**Tests**
+- Baseline before: 383 passed, 1 deselected. After: 383 passed, 1 deselected
+- Done by a one-off script that wrote a file only if `argus.compare_code()`
+  accepted it against the original; all 23 were accepted and none has a
+  docstring left. Then `momus guard --code-only` on the 23 files: all `ok`
+- Not checked by a tool: the wording of the comments, which is the old text
+  with double backticks turned into single ones. I read a few files, not all
+
+**Decisions**
+- Decided by the maintainer: convert the existing docstrings, and write the
+  rule in `CLAUDE.md`
+- `src/momus/__init__.py` keeps its docstring — assistant's choice:
+  `tests/test_smoke.py` checks the package has one
+- Comment above the definition (above its decorators), not inside the body —
+  assistant's choice, the same place used for the code written earlier today
+
+**Open / next**
+- Nothing
+
 ## 2026-11-16 — Untracked files in `momus comment`; comments instead of docstrings in new code (plan §9)
 
 **Changed**

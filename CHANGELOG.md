@@ -8,6 +8,10 @@ are in [WORKLOG.md](WORKLOG.md).
 
 ### Added
 
+- `momus comment` also writes a docstring for the file itself (when it has
+  none) and for functions and classes defined inside other functions or
+  classes. For the file, the model sees an outline without the bodies and
+  only the first paragraph of its answer is kept
 - `momus comment` with no file names runs on the `.py` files changed since
   the last commit (staged or not) and on new files git does not track yet.
   Files excluded by `.gitignore` are left out
@@ -113,6 +117,11 @@ are in [WORKLOG.md](WORKLOG.md).
 
 ### Changed
 
+- The project's own code is explained with `#` comments above each
+  definition instead of docstrings (`src/` and `tests/`; the package
+  docstring in `src/momus/__init__.py` stays). No behaviour changed
+- Every file now costs one more model call in `momus comment` and `momus
+  bench`, for the file's own docstring
 - The review model now defaults to `sonnet` for long files and `haiku` for
   files of at most 200 lines, instead of the account's default model
 - `momus comment` and `momus bench` now generate **docstrings only** by
