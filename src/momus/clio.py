@@ -644,6 +644,11 @@ def comment_source(source: str, backend: Backend, mode: str = DEFAULT_MODE) -> C
                 Outcome(target.name, REJECTED, str(exc), "docstring", _cause_of(exc))
             )
             continue
+        if target.kind == "module":
+            # Only the first paragraph: what the file is for. A real model went
+            # on to list every function with its arguments, which the functions'
+            # own docstrings already say.
+            text = text.split("\n\n", 1)[0].strip()
         block = format_docstring(text, target.indent, _ending_of(lines, target.index))
         if target.kind == "module":
             # A module docstring is set apart from the code by an empty line.

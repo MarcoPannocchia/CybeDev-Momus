@@ -664,6 +664,15 @@ def test_where_the_file_docstring_goes(source, expected):
     assert checked(source)[0].text == expected
 
 
+def test_only_the_first_paragraph_of_a_file_docstring_is_kept():
+    # Observed with qwen2.5-coder:7b on async_tools.py (2026-11-16): a good
+    # first sentence, then a list of every function with its arguments.
+    listing = "Decorators for timing and caching.\n\n- `timed`: Measures a call.\n  - Args: func"
+    result, _ = checked("def a():\n    return 1\n", ["Return one.\n\nNever fails.", listing])
+    assert ast.get_docstring(ast.parse(result.text)) == "Decorators for timing and caching."
+    assert docstrings(result.text)["a"] == "Return one.\n\nNever fails."  # a function keeps its paragraphs
+
+
 @pytest.mark.parametrize("source", ["", "\n\n", "# Only a comment.\n"])
 def test_a_file_with_no_code_is_left_alone_and_the_model_is_not_asked(source):
     result, backend = checked(source)
