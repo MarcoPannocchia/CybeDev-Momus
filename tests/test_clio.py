@@ -625,6 +625,133 @@ def test_inline_comments_are_opt_in():
     assert "#" not in result.text
 
 
+# --- The file's own docstring and nested definitions (plan §9) --------------
+
+
+def checked(source, replies=("Doc.",)):
+    backend = FakeBackend([reply(text) for text in replies])
+    result = docs(source, backend)
+    assert argus.compare_code(source, result.text).accepted
+    assert argus.check_inserted_lines(source, result.text, result.inserted_lines).accepted
+    return result, backend
+
+
+def code_shown(prompt):
+    return prompt.split("Code:\n", 1)[1]
+
+
+def test_a_file_gets_a_docstring_at_the_top_set_apart_by_an_empty_line():
+    result, _ = checked("import os\n\nLIMIT = 3\n")
+    assert result.text == '"""Doc."""\n\nimport os\n\nLIMIT = 3\n'
+    assert ast.get_docstring(ast.parse(result.text)) == "Doc."
+    assert statuses(result) == {"<module>": ADDED}
+
+
+@pytest.mark.parametrize(
+    "source, expected",
+    [
+        # After the line the shell reads and the encoding line Python reads.
+        ("#!/usr/bin/env python3\nx = 1\n", '#!/usr/bin/env python3\n"""Doc."""\n\nx = 1\n'),
+        ("#!/bin/sh\n# coding: latin-1\nx = 1\n", '#!/bin/sh\n# coding: latin-1\n"""Doc."""\n\nx = 1\n'),
+        # Above a comment that sits on the first statement, so the two stay together.
+        ("# The limit.\nLIMIT = 3\n", '"""Doc."""\n\n# The limit.\nLIMIT = 3\n'),
+        # A comment kept apart by an empty line is a header and stays first.
+        ("# Licence.\n\nx = 1\n", '# Licence.\n\n"""Doc."""\n\nx = 1\n'),
+        ("x = 1\r\ny = 2\r\n", '"""Doc."""\r\n\r\nx = 1\r\ny = 2\r\n'),
+    ],
+)
+def test_where_the_file_docstring_goes(source, expected):
+    assert checked(source)[0].text == expected
+
+
+@pytest.mark.parametrize("source", ["", "\n\n", "# Only a comment.\n"])
+def test_a_file_with_no_code_is_left_alone_and_the_model_is_not_asked(source):
+    result, backend = checked(source)
+    assert result.text == source and statuses(result) == {"<module>": SKIPPED}
+    assert backend.prompts == []
+
+
+def test_the_model_sees_an_outline_of_the_file_not_the_bodies():
+    _, backend = checked(SOURCE)
+    prompt = backend.prompts[-1]  # the file is asked about last
+    assert "docstring for the module shown below" in prompt
+    assert code_shown(prompt) == (
+        "def add(a, b):\n    ...\n"
+        "class Box:\n"
+        "    @property\n    def size(self):\n        ...\n"
+        "    def grow(self):\n        ...\n\n"
+    )
+
+
+def test_a_long_statement_and_a_long_file_are_cut_in_the_outline(monkeypatch):
+    table = "TABLE = [\n" + "    1,\n" * 5 + "]\n"
+    _, backend = checked(table + "def a():\n    return 1\n")
+    assert code_shown(backend.prompts[-1]).startswith("TABLE = [\n...\ndef a():\n")
+    monkeypatch.setattr(clio, "MODULE_OUTLINE_LINES", 2)
+    _, backend = checked("a = 1\nb = 2\nc = 3\n")
+    assert code_shown(backend.prompts[-1]) == "a = 1\nb = 2\n...\n\n"
+
+
+NESTED = textwrap.dedent(
+    """
+    \"\"\"Sorting helpers.\"\"\"
+
+    def outer(items):
+        def key(item):
+            return item.size
+
+        class Local:
+            def run(self):
+                return 1
+
+        return sorted(items, key=key)
+
+
+    class Box:
+        class Meta:
+            def name(self):
+                return "box"
+    """
+).lstrip("\n")
+
+
+def test_definitions_inside_other_definitions_get_docstrings_too():
+    names = ["outer", "outer.key", "outer.Local", "outer.Local.run", "Box", "Box.Meta", "Box.Meta.name"]
+    result, backend = checked(NESTED, [name.upper() for name in names])
+    assert statuses(result) == {**dict.fromkeys(names, ADDED), "<module>": SKIPPED}
+    # Each text landed in the definition it was written for.
+    assert docstrings(result.text) == {name.rsplit(".", 1)[-1]: name.upper() for name in names}
+    assert len(backend.prompts) == len(names)
+
+
+def test_a_nested_definition_is_shown_on_its_own_and_a_method_inside_its_own_class():
+    _, backend = checked(NESTED)
+    shown = [code_shown(prompt) for prompt in backend.prompts]
+    assert shown[1] == "def key(item):\n    return item.size\n\n"
+    assert "docstring for the function shown below" in backend.prompts[1]
+    assert shown[3] == "class Local:\n    ...\n\n    def run(self):\n        return 1\n\n"
+    assert "docstring for the method shown below" in backend.prompts[3]
+    assert shown[6].startswith("class Meta:\n    ...\n\n    def name(self):")
+
+
+def test_a_nested_function_can_get_inline_comments():
+    source = (
+        "def outer():\n"
+        "    def inner(a):\n"
+        "        b = a + 1\n"
+        "        c = b * 2\n"
+        "        return c\n"
+        "    return inner\n"
+    )
+    # `outer` has too few statements to be asked about; `inner` is asked on its own.
+    backend = FakeBackend([comment_reply("S2: Doubled because sizes come in halves.")])
+    result = comments(source, backend)
+    assert statuses(result) == {"outer comments": SKIPPED, "outer.inner S2": ADDED}
+    assert len(backend.prompts) == 1
+    assert "        # Doubled because sizes come in halves.\n        c = b * 2\n" in result.text
+    assert argus.check_inserted_lines(source, result.text, result.inserted_lines).accepted
+
+
 # --- The files changed since the last commit (plan §9) ----------------------
 
 

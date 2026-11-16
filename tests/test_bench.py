@@ -102,7 +102,7 @@ def test_summary_counts_and_the_main_metric(tmp_path):
     assert stats["rejected_by_cause"] == {"reply": 2}
     assert stats["accepted_total"] == 1 and stats["guard_acceptance"] == 1.0
     assert stats["requests"] == 3 and stats["requests_failed"] == 0
-    assert stats["prompt_tokens"] == 20 and stats["completion_tokens"] == 10
+    assert stats["prompt_tokens"] == 30 and stats["completion_tokens"] == 15
     assert stats["tokens_per_second"] > 0 and stats["accepted_per_minute"] > 0
 
 
