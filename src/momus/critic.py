@@ -1,14 +1,13 @@
-"""The critic: asks a strong model whether the comments Momus added are any good.
-
-Clio's comments are written by a small model and nothing proves they are true,
-so a stronger model reads them. To keep that cheap it is not shown the whole
-file: only the comments Momus added, each next to the code of the function or
-class around it. The code has to be there. A well-written false comment cannot
-be recognised without it.
-
-Review only ever looks at a change that adds comments and docstrings and
-nothing else. Anything more is refused, using the same two checks as Argus.
-"""
+# The critic: asks a strong model whether the comments Momus added are any good.
+#
+# Clio's comments are written by a small model and nothing proves they are true,
+# so a stronger model reads them. To keep that cheap it is not shown the whole
+# file: only the comments Momus added, each next to the code of the function or
+# class around it. The code has to be there. A well-written false comment cannot
+# be recognised without it.
+#
+# Review only ever looks at a change that adds comments and docstrings and
+# nothing else. Anything more is refused, using the same two checks as Argus.
 
 import ast
 import difflib
@@ -36,14 +35,14 @@ _ENTRY = re.compile(r"^\s*C(\d+)\s*[:.)-]\s*(.*\S)\s*$")
 _DEFINITIONS = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
 
 
+# Raised when a change cannot be reviewed, or a reply cannot be used.
 class CriticError(Exception):
-    """Raised when a change cannot be reviewed, or a reply cannot be used."""
+    pass
 
 
+# A docstring or a block of `#` lines that was added to a file.
 @dataclass(frozen=True)
 class Comment:
-    """A docstring or a block of ``#`` lines that was added to a file."""
-
     path: str
     kind: str  # "docstring" or "comment"
     line: int  # 1-based line in the new text where it starts
@@ -51,19 +50,17 @@ class Comment:
     text: str
 
 
+# Comments that share one piece of code, and that code ready to show.
 @dataclass(frozen=True)
 class Group:
-    """Comments that share one piece of code, and that code ready to show."""
-
     path: str
     code: str
     comments: tuple[Comment, ...]
 
 
+# One problem the reviewer reported.
 @dataclass(frozen=True)
 class Finding:
-    """One problem the reviewer reported."""
-
     path: str
     line: int
     kind: str
@@ -75,10 +72,9 @@ class Finding:
         return f"{self.path}:{self.line}: {self.problem}"
 
 
+# What a review produced: findings, how much was reviewed, what went wrong.
 @dataclass
 class ReviewResult:
-    """What a review produced: findings, how much was reviewed, what went wrong."""
-
     findings: list[Finding] = field(default_factory=list)
     reviewed: int = 0
     batches: int = 0
@@ -88,12 +84,11 @@ class ReviewResult:
 # --- Finding what was added ------------------------------------------------
 
 
+# Return the 1-based numbers of the lines that were only added.
+#
+# Raises:
+#     CriticError: if any line was changed or removed.
 def _inserted_lines(old_lines: list[str], new_lines: list[str]) -> list[int]:
-    """Return the 1-based numbers of the lines that were only added.
-
-    Raises:
-        CriticError: if any line was changed or removed.
-    """
     matcher = difflib.SequenceMatcher(None, old_lines, new_lines, autojunk=False)
     inserted: list[int] = []
     for tag, _, _, new_start, new_end in matcher.get_opcodes():
@@ -104,14 +99,13 @@ def _inserted_lines(old_lines: list[str], new_lines: list[str]) -> list[int]:
     return inserted
 
 
+# List the docstrings and comments that `new` adds to `original`.
+#
+# Raises:
+#     CriticError: if `new` is not `original` plus comments and
+#         docstrings only. Both Argus checks must pass, so a change that
+#         touches the code is never reviewed as if it were harmless.
 def find_comments(path: str, original: str, new: str) -> list[Comment]:
-    """List the docstrings and comments that ``new`` adds to ``original``.
-
-    Raises:
-        CriticError: if ``new`` is not ``original`` plus comments and
-            docstrings only. Both Argus checks must pass, so a change that
-            touches the code is never reviewed as if it were harmless.
-    """
     old_lines, new_lines = argus.split_lines(original), argus.split_lines(new)
     inserted = _inserted_lines(old_lines, new_lines)
     for verdict in (
@@ -169,8 +163,8 @@ def _first_line(node: ast.stmt) -> int:
     return min([node.lineno, *(decorator.lineno for decorator in decorators)])
 
 
+# Return the innermost function or class that contains `line`, or None.
 def _enclosing(tree: ast.Module, line: int):
-    """Return the innermost function or class that contains ``line``, or None."""
     best = None
     for node in ast.walk(tree):
         if isinstance(node, _DEFINITIONS) and _first_line(node) <= line <= node.end_lineno:
@@ -179,22 +173,21 @@ def _enclosing(tree: ast.Module, line: int):
     return best
 
 
+# Show lines `first`..`last` with their numbers; `+` marks added lines.
 def _render(new_lines: list[str], first: int, last: int, added: set[int]) -> str:
-    """Show lines ``first``..``last`` with their numbers; ``+`` marks added lines."""
     return "\n".join(
         f"{number:>5}{'+' if number in added else ' '}| {new_lines[number - 1].rstrip()}"
         for number in range(first, last + 1)
     )
 
 
+# Say which lines of a definition were left out of `code`.
+#
+# Without this the reviewer takes the part it sees for the whole, and
+# reports a method as nonexistent because it was cut off. For a class, the
+# signatures of the methods that were cut are listed, so a docstring about
+# the class can still be checked against what the class offers.
 def _mark_omissions(code, new_lines, added, owner, span, first, last) -> str:
-    """Say which lines of a definition were left out of ``code``.
-
-    Without this the reviewer takes the part it sees for the whole, and
-    reports a method as nonexistent because it was cut off. For a class, the
-    signatures of the methods that were cut are listed, so a docstring about
-    the class can still be checked against what the class offers.
-    """
     start, end = span
     if first > start:
         code = f"      ... lines {start}-{first - 1} of this definition are not shown\n{code}"
@@ -211,16 +204,15 @@ def _mark_omissions(code, new_lines, added, owner, span, first, last) -> str:
     return code
 
 
+# Pair each added comment with the code around it.
+#
+# Comments inside the same function or class share one copy of its code. A
+# definition longer than `MAX_CONTEXT_LINES` is cut down to the part near
+# its comments.
+#
+# Raises:
+#     CriticError: as `find_comments`.
 def build_groups(path: str, original: str, new: str) -> list[Group]:
-    """Pair each added comment with the code around it.
-
-    Comments inside the same function or class share one copy of its code. A
-    definition longer than ``MAX_CONTEXT_LINES`` is cut down to the part near
-    its comments.
-
-    Raises:
-        CriticError: as ``find_comments``.
-    """
     comments = find_comments(path, original, new)
     if not comments:
         return []
@@ -260,10 +252,9 @@ def build_groups(path: str, original: str, new: str) -> list[Group]:
 # --- Asking the reviewer ---------------------------------------------------
 
 
+# One request: the prompt, and which comment each `C<number>` means.
 @dataclass(frozen=True)
 class Batch:
-    """One request: the prompt, and which comment each ``C<number>`` means."""
-
     prompt: str
     comments: dict
 
@@ -272,12 +263,11 @@ def _load_prompt() -> str:
     return resources.files("momus").joinpath("prompts/critic.txt").read_text(encoding="utf-8")
 
 
+# Pack groups into requests of at most `max_items` comments each.
+#
+# A request also stops growing when its code passes `MAX_BATCH_CHARS`. One
+# group always stays whole, even if it alone is over a limit.
 def build_batches(groups: Iterable[Group], max_items: int = 10) -> list[Batch]:
-    """Pack groups into requests of at most ``max_items`` comments each.
-
-    A request also stops growing when its code passes ``MAX_BATCH_CHARS``. One
-    group always stays whole, even if it alone is over a limit.
-    """
     batches: list[list[Group]] = []
     items = size = 0
     for group in groups:
@@ -308,12 +298,11 @@ def build_batches(groups: Iterable[Group], max_items: int = 10) -> list[Batch]:
     return result
 
 
+# Read `C3: problem` lines from a reply; `OK` means no problems.
+#
+# Raises:
+#     CriticError: if the reply has text but no line in that format.
 def parse_findings(reply: str) -> list[tuple[int, str]]:
-    """Read ``C3: problem`` lines from a reply; ``OK`` means no problems.
-
-    Raises:
-        CriticError: if the reply has text but no line in that format.
-    """
     text = strip_reasoning(reply)
     if "```" in text:
         text = clean_output(text)
@@ -332,14 +321,13 @@ def parse_findings(reply: str) -> list[tuple[int, str]]:
     return entries
 
 
+# Review the comments added in `(path, original, new)` changes.
+#
+# A change that cannot be reviewed, or a request that fails, is recorded in
+# `errors` and does not stop the others.
 def review_changes(
     changes: Iterable[tuple[str, str, str]], backend: Backend, max_items: int = 10
 ) -> ReviewResult:
-    """Review the comments added in ``(path, original, new)`` changes.
-
-    A change that cannot be reviewed, or a request that fails, is recorded in
-    ``errors`` and does not stop the others.
-    """
     result = ReviewResult()
     groups: list[Group] = []
     for path, original, new in changes:
@@ -369,6 +357,12 @@ def review_changes(
     return result
 
 
+# Review changes, sending short files to `small_backend` if there is one.
+#
+# A file counts as short when its new text has at most `small_file_lines`
+# lines. A cheaper model is enough for a function that fits on a screen; a
+# long file needs the stronger one to keep track of what refers to what.
+# Without a `small_backend` everything goes to `backend`.
 def review_routed(
     changes: Iterable[tuple[str, str, str]],
     backend: Backend,
@@ -376,13 +370,6 @@ def review_routed(
     small_file_lines: int = 0,
     max_items: int = 10,
 ) -> ReviewResult:
-    """Review changes, sending short files to ``small_backend`` if there is one.
-
-    A file counts as short when its new text has at most ``small_file_lines``
-    lines. A cheaper model is enough for a function that fits on a screen; a
-    long file needs the stronger one to keep track of what refers to what.
-    Without a ``small_backend`` everything goes to ``backend``.
-    """
     changes = list(changes)
     if small_backend is None:
         return review_changes(changes, backend, max_items)
@@ -404,19 +391,18 @@ def review_routed(
 # --- Acting on findings ----------------------------------------------------
 
 
+# Return `new` without the comments that `findings` flagged.
+#
+# Only whole added comments are removed, so the text moves back towards
+# `original` and never away from it. The result is checked the same way a
+# change is checked before review: it must still be `original` plus
+# comments and docstrings only, and it must hold exactly the comments that
+# were not flagged. If anything does not add up, nothing is returned.
+#
+# Raises:
+#     CriticError: if a finding does not match an added comment, or the
+#         result fails a check.
 def drop_flagged(path: str, original: str, new: str, findings: Iterable[Finding]) -> str:
-    """Return ``new`` without the comments that ``findings`` flagged.
-
-    Only whole added comments are removed, so the text moves back towards
-    ``original`` and never away from it. The result is checked the same way a
-    change is checked before review: it must still be ``original`` plus
-    comments and docstrings only, and it must hold exactly the comments that
-    were not flagged. If anything does not add up, nothing is returned.
-
-    Raises:
-        CriticError: if a finding does not match an added comment, or the
-            result fails a check.
-    """
     before = {(c.line, c.end_line): c for c in find_comments(path, original, new)}
     doomed: set[int] = set()
     flagged = set()
@@ -440,13 +426,12 @@ def drop_flagged(path: str, original: str, new: str, findings: Iterable[Finding]
 # --- Where the original text comes from ------------------------------------
 
 
+# Return the text of `path` as it is in git at `ref`.
+#
+# Raises:
+#     CriticError: if git cannot provide it (not a repository, new file,
+#         unknown reference).
 def read_git_baseline(path, ref: str = "HEAD") -> str:
-    """Return the text of ``path`` as it is in git at ``ref``.
-
-    Raises:
-        CriticError: if git cannot provide it (not a repository, new file,
-            unknown reference).
-    """
     target = Path(path)
     try:
         done = subprocess.run(

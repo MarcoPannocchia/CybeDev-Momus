@@ -1,9 +1,8 @@
-"""Command-line entry point for Momus.
-
-``comment`` (docstrings, and inline comments on request), ``guard`` (check
-that files hold their git baseline plus comments only), ``review`` (check the
-added comments with a strong model) and ``bench`` (compare models).
-"""
+# Command-line entry point for Momus.
+#
+# `comment` (docstrings, and inline comments on request), `guard` (check
+# that files hold their git baseline plus comments only), `review` (check the
+# added comments with a strong model) and `bench` (compare models).
 
 import argparse
 import difflib
@@ -41,8 +40,8 @@ COMMANDS = {
 }
 
 
+# Build the top-level argument parser with one subcommand per stage.
 def build_parser() -> argparse.ArgumentParser:
-    """Build the top-level argument parser with one subcommand per stage."""
     parser = argparse.ArgumentParser(
         prog="momus",
         description="Comment and document freshly written code with few tokens.",
@@ -127,13 +126,12 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+# Run Clio on `files`; show a diff, and write only if `write` is true.
+#
+# Returns 0 if every file could be read and processed, 1 otherwise.
 def comment_command(
     files: list[Path], backend: Backend, write: bool, mode: str = DEFAULT_MODE, out=None
 ) -> int:
-    """Run Clio on ``files``; show a diff, and write only if ``write`` is true.
-
-    Returns 0 if every file could be read and processed, 1 otherwise.
-    """
     out = out or sys.stdout
     status = 0
     for path in files:
@@ -210,6 +208,14 @@ def guard_command(
     return status
 
 
+# Review the comments added to `files` since `base`.
+#
+# Prints one `file:line: problem` per bad comment and nothing else on
+# standard output. With `drop` the flagged comments are then removed from
+# the files, each file being written only if the result still passes the
+# guard. Short files go to `small_backend` when one is given. Returns 0 if
+# every file was reviewed (whether or not problems were found) and 1 if some
+# file or request could not be.
 def review_command(
     files: list[Path],
     backend: Backend,
@@ -221,15 +227,6 @@ def review_command(
     small_backend: Backend | None = None,
     small_file_lines: int = 0,
 ) -> int:
-    """Review the comments added to ``files`` since ``base``.
-
-    Prints one ``file:line: problem`` per bad comment and nothing else on
-    standard output. With ``drop`` the flagged comments are then removed from
-    the files, each file being written only if the result still passes the
-    guard. Short files go to ``small_backend`` when one is given. Returns 0 if
-    every file was reviewed (whether or not problems were found) and 1 if some
-    file or request could not be.
-    """
     out = out or sys.stdout
     status = 0
     changes = []
@@ -261,12 +258,11 @@ def review_command(
     return 1 if result.errors else status
 
 
+# Run the CLI and return the process exit status.
+#
+# With no command it prints the help text and returns 0. Otherwise it
+# returns the status of the command that ran.
 def main(argv: list[str] | None = None) -> int:
-    """Run the CLI and return the process exit status.
-
-    With no command it prints the help text and returns 0. Otherwise it
-    returns the status of the command that ran.
-    """
     parser = build_parser()
     args = parser.parse_args(argv)
     if args.command is None:

@@ -1,18 +1,17 @@
-"""Benchmark: run Clio with several models over the same files and record how it went.
-
-This is the engine behind ``momus bench``. It never writes to the files it
-reads: Clio runs as a dry run, and the only files written are the result files.
-
-For every model it saves one JSON file with everything raw (each prompt, each
-reply, seconds and token counts per request, every outcome, the generated
-diff) and one Markdown file with the summary and the diffs for a person to
-read. Both start with the measurement conditions, so a number can be judged
-against the circumstances it was taken in.
-
-Numbers here are measurements of one run on one machine. The speed figures are
-wall-clock: they include the time the model spends reading the prompt and,
-for the first request, loading the model.
-"""
+# Benchmark: run Clio with several models over the same files and record how it went.
+#
+# This is the engine behind `momus bench`. It never writes to the files it
+# reads: Clio runs as a dry run, and the only files written are the result files.
+#
+# For every model it saves one JSON file with everything raw (each prompt, each
+# reply, seconds and token counts per request, every outcome, the generated
+# diff) and one Markdown file with the summary and the diffs for a person to
+# read. Both start with the measurement conditions, so a number can be judged
+# against the circumstances it was taken in.
+#
+# Numbers here are measurements of one run on one machine. The speed figures are
+# wall-clock: they include the time the model spends reading the prompt and,
+# for the first request, loading the model.
 
 import difflib
 import glob
@@ -47,10 +46,9 @@ DEFAULT_OUT = "benchmarks/results"
 # --- Recording what the model is asked and answers ---------------------------
 
 
+# One call to the model.
 @dataclass
 class Request:
-    """One call to the model."""
-
     prompt: str
     reply: str | None
     seconds: float
@@ -59,9 +57,8 @@ class Request:
     error: str | None = None
 
 
+# Wraps a backend and keeps every request, for the result file.
 class RecordingBackend:
-    """Wraps a backend and keeps every request, for the result file."""
-
     def __init__(self, inner: Backend) -> None:
         self.inner = inner
         self.requests: list[Request] = []
@@ -89,14 +86,12 @@ class RecordingBackend:
 # --- Talking to Ollama (optional: everything here may fail quietly) ----------
 
 
+# Read-only questions to an Ollama server, plus unloading models.
+#
+# Every method returns `None` (or an empty list) when the server is not
+# Ollama or does not answer, so the benchmark still runs against any
+# OpenAI-format server, just with fewer conditions recorded.
 class OllamaInfo:
-    """Read-only questions to an Ollama server, plus unloading models.
-
-    Every method returns ``None`` (or an empty list) when the server is not
-    Ollama or does not answer, so the benchmark still runs against any
-    OpenAI-format server, just with fewer conditions recorded.
-    """
-
     def __init__(self, base_url: str, timeout: float = 5.0) -> None:
         self.root = re.sub(r"/v1/?$", "", base_url.rstrip("/"))
         self.timeout = timeout
@@ -133,8 +128,8 @@ class OllamaInfo:
         data = self._call("/api/show", {"model": model})
         return data.get("details") if isinstance(data, dict) else None
 
+    # Unload every loaded model, so the next first request is a cold load.
     def unload_all(self) -> list[str]:
-        """Unload every loaded model, so the next first request is a cold load."""
         names = [m.get("name", "") for m in self.loaded()]
         for name in names:
             self._call("/api/generate", {"model": name, "keep_alive": 0})
@@ -151,8 +146,8 @@ def _read(path: str) -> str | None:
         return None
 
 
+# Say whether the machine is on mains or battery, from the kernel's own files.
 def _power_source() -> str:
-    """Say whether the machine is on mains or battery, from the kernel's own files."""
     mains, battery = None, None
     for folder in sorted(glob.glob("/sys/class/power_supply/*")):
         kind = _read(f"{folder}/type")
@@ -183,13 +178,12 @@ def _meminfo_gb(field_name: str) -> float | None:
     return round(int(match.group(1)) / 1024 / 1024, 1) if match else None
 
 
+# Describe the machine and how busy it is. Never raises.
+#
+# Process names are deliberately not recorded: the result files are meant to
+# be published. Load and free memory are the evidence that other heavy
+# applications were closed; `notes` is for the operator to say so too.
 def collect_machine_conditions(notes: str = "") -> dict:
-    """Describe the machine and how busy it is. Never raises.
-
-    Process names are deliberately not recorded: the result files are meant to
-    be published. Load and free memory are the evidence that other heavy
-    applications were closed; ``notes`` is for the operator to say so too.
-    """
     cpu = None
     for line in (_read("/proc/cpuinfo") or "").splitlines():
         if line.startswith("model name"):
@@ -241,6 +235,7 @@ class ModelRun:
     skipped_reason: str | None = None
 
 
+# Run Clio over `paths` with `backend`, as a dry run, and record everything.
 def run_model(
     model: str,
     backend: Backend,
@@ -248,7 +243,6 @@ def run_model(
     mode: str,
     conditions: dict,
 ) -> ModelRun:
-    """Run Clio over ``paths`` with ``backend``, as a dry run, and record everything."""
     run = ModelRun(model, conditions, mode)
     recorder = RecordingBackend(backend)
     for path in paths:
@@ -273,13 +267,12 @@ def run_model(
     return run
 
 
+# Turn a run into the numbers of the plan's table.
+#
+# `accepted_per_minute` is the plan's main metric: insertions that passed
+# Argus, divided by the time spent in the model. `tokens_per_second` is
+# completion tokens over wall-clock seconds, so it includes prompt reading.
 def summarize(run: ModelRun) -> dict:
-    """Turn a run into the numbers of the plan's table.
-
-    ``accepted_per_minute`` is the plan's main metric: insertions that passed
-    Argus, divided by the time spent in the model. ``tokens_per_second`` is
-    completion tokens over wall-clock seconds, so it includes prompt reading.
-    """
     outcomes = [o for f in run.files for o in f.outcomes]
     by = Counter((o["kind"], o["status"]) for o in outcomes)
     causes = Counter(o["cause"] for o in outcomes if o["status"] == REJECTED)
@@ -329,8 +322,8 @@ def _slug(model: str) -> str:
     return re.sub(r"[^A-Za-z0-9.]+", "-", model).strip("-")
 
 
+# Human-readable summary of a run, ending with the diffs to review.
 def render_markdown(run: ModelRun, summary: dict) -> str:
-    """Human-readable summary of a run, ending with the diffs to review."""
     lines = [f"# Benchmark: {run.model}", ""]
     if run.skipped_reason:
         return "\n".join([*lines, f"**Not run:** {run.skipped_reason}", ""])
@@ -361,8 +354,8 @@ def render_markdown(run: ModelRun, summary: dict) -> str:
     return "\n".join(lines)
 
 
+# Write the JSON (raw) and Markdown (readable) files of one run.
 def write_run(run: ModelRun, out_dir: Path) -> tuple[Path, Path]:
-    """Write the JSON (raw) and Markdown (readable) files of one run."""
     out_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     stem = out_dir / f"{stamp}_{_slug(run.model)}"
@@ -387,6 +380,12 @@ def write_run(run: ModelRun, out_dir: Path) -> tuple[Path, Path]:
 # --- The command -------------------------------------------------------------
 
 
+# Run every model over every file and write one result pair per model.
+#
+# With `unload` (the default) all loaded models are unloaded before each
+# model, so its first request is a true cold load and models do not share
+# memory. A model that is not installed is recorded as not run instead of
+# failing request by request.
 def run_comparison(
     models: list[str],
     paths: list[Path],
@@ -399,13 +398,6 @@ def run_comparison(
     make_backend=build_local_backend,
     log=print,
 ) -> list[ModelRun]:
-    """Run every model over every file and write one result pair per model.
-
-    With ``unload`` (the default) all loaded models are unloaded before each
-    model, so its first request is a true cold load and models do not share
-    memory. A model that is not installed is recorded as not run instead of
-    failing request by request.
-    """
     ollama = ollama or OllamaInfo(settings.base_url)
     installed = ollama.installed()
     runs = []
@@ -436,8 +428,8 @@ def run_comparison(
     return runs
 
 
+# Entry point for `momus bench`; `args` comes from the CLI parser.
 def main(args) -> int:
-    """Entry point for ``momus bench``; ``args`` comes from the CLI parser."""
     try:
         settings = load_local_settings(args.config)
     except BackendError as exc:

@@ -1,4 +1,4 @@
-"""Tests for the file splitter (plan §8)."""
+# Tests for the file splitter (plan §8).
 
 import ast
 import textwrap

@@ -1,9 +1,8 @@
-"""Backend for Claude through the Anthropic Messages API.
-
-Plain HTTP from the standard library, like the local backend: one JSON request
-needs no SDK, so no extra dependency. The API key is read from an environment
-variable, never from code or from ``momus.toml``.
-"""
+# Backend for Claude through the Anthropic Messages API.
+#
+# Plain HTTP from the standard library, like the local backend: one JSON request
+# needs no SDK, so no extra dependency. The API key is read from an environment
+# variable, never from code or from `momus.toml`.
 
 import json
 import os
@@ -16,9 +15,8 @@ API_URL = "https://api.anthropic.com/v1/messages"
 API_VERSION = "2023-06-01"
 
 
+# Sends prompts to the Messages API and returns the text of the reply.
 class AnthropicBackend:
-    """Sends prompts to the Messages API and returns the text of the reply."""
-
     def __init__(
         self,
         model: str,
@@ -33,13 +31,12 @@ class AnthropicBackend:
         self.timeout = timeout
         self.url = url
 
+    # Send `prompt` as one user message and return the reply text.
+    #
+    # Raises:
+    #     BackendError: if the key is not set, the server cannot be reached,
+    #         answers with an error, or returns an unexpected shape.
     def complete(self, prompt: str) -> str:
-        """Send ``prompt`` as one user message and return the reply text.
-
-        Raises:
-            BackendError: if the key is not set, the server cannot be reached,
-                answers with an error, or returns an unexpected shape.
-        """
         key = os.environ.get(self.api_key_env)
         if not key:
             raise BackendError(f"environment variable {self.api_key_env} is not set")

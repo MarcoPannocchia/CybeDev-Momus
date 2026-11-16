@@ -1,9 +1,8 @@
-"""Tests for the backend interface, the fake backend, the config and the local client.
-
-The local client is tested against a tiny stub HTTP server running on
-localhost, so no model is involved. Tests that need a real Ollama server are
-marked ``integration`` and are skipped by default.
-"""
+# Tests for the backend interface, the fake backend, the config and the local client.
+#
+# The local client is tested against a tiny stub HTTP server running on
+# localhost, so no model is involved. Tests that need a real Ollama server are
+# marked `integration` and are skipped by default.
 
 import json
 import threading
@@ -18,9 +17,8 @@ from momus.backends.local import LocalBackend
 from momus.config import LocalSettings, build_local_backend, load_local_settings
 
 
+# A local HTTP server that returns one fixed response and records requests.
 class StubServer:
-    """A local HTTP server that returns one fixed response and records requests."""
-
     def __init__(self, status: int = 200, body: bytes = b"") -> None:
         self.requests: list[dict] = []
         outer = self

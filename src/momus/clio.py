@@ -1,16 +1,15 @@
-"""Clio, the commenting stage: adds missing docstrings and inline comments.
-
-The model never writes code and never decides where anything goes. For a
-docstring it returns only the text. For inline comments it is shown the code
-with numbered statements (S1, S2, ...) and answers "S3: comment text". Momus
-finds the place with ``ast`` line numbers and inserts the lines itself. Every
-insertion is then checked twice by Argus (the code is identical, and removing
-the inserted lines gives back the original text exactly), and anything that
-fails is dropped.
-
-Nothing here writes to a file except ``write_text_atomic``, which callers use
-only after the checks have passed.
-"""
+# Clio, the commenting stage: adds missing docstrings and inline comments.
+#
+# The model never writes code and never decides where anything goes. For a
+# docstring it returns only the text. For inline comments it is shown the code
+# with numbered statements (S1, S2, ...) and answers "S3: comment text". Momus
+# finds the place with `ast` line numbers and inserts the lines itself. Every
+# insertion is then checked twice by Argus (the code is identical, and removing
+# the inserted lines gives back the original text exactly), and anything that
+# fails is dropped.
+#
+# Nothing here writes to a file except `write_text_atomic`, which callers use
+# only after the checks have passed.
 
 import ast
 import io
@@ -72,14 +71,14 @@ _FUNCTIONS = (ast.FunctionDef, ast.AsyncFunctionDef)
 _DEFINITIONS = (*_FUNCTIONS, ast.ClassDef)
 
 
+# Raised for a model reply that cannot be used.
 class ClioError(Exception):
-    """Raised for a model reply that cannot be used."""
+    pass
 
 
+# What happened to one function, method, class or comment.
 @dataclass(frozen=True)
 class Outcome:
-    """What happened to one function, method, class or comment."""
-
     name: str
     status: str  # ADDED, SKIPPED (left alone on purpose) or REJECTED (a check failed)
     reason: str
@@ -87,14 +86,12 @@ class Outcome:
     cause: str = ""  # for REJECTED: "backend", "reply", "anchor", "style", "limit" or "guard"
 
 
+# The new text of a file and the outcome for each target in it.
+#
+# `text` equals the original text when nothing was added. Line numbers in
+# `inserted_lines` are 1-based and refer to `text`.
 @dataclass(frozen=True)
 class ClioResult:
-    """The new text of a file and the outcome for each target in it.
-
-    ``text`` equals the original text when nothing was added. Line numbers in
-    ``inserted_lines`` are 1-based and refer to ``text``.
-    """
-
     text: str
     outcomes: tuple[Outcome, ...]
     inserted_lines: tuple[int, ...]
@@ -126,39 +123,38 @@ class _CommentTarget:
 # --- Prompts and replies ---------------------------------------------------
 
 
+# Read a prompt template; they live in plain files so they are easy to edit.
 def _load(name: str) -> str:
-    """Read a prompt template; they live in plain files so they are easy to edit."""
     return resources.files("momus").joinpath(f"prompts/{name}").read_text(encoding="utf-8")
 
 
+# Fill `{{NAME}}` markers by plain replacement, because code is full of braces.
 def _fill(template: str, **values: str) -> str:
-    """Fill ``{{NAME}}`` markers by plain replacement, because code is full of braces."""
     for key, value in values.items():
         template = template.replace("{{" + key.upper() + "}}", value)
     return template
 
 
+# Read the docstring prompt template.
 def load_prompt() -> str:
-    """Read the docstring prompt template."""
     return _load("clio.txt")
 
 
+# Fill the docstring prompt.
 def build_prompt(kind: str, code: str, context: str = "") -> str:
-    """Fill the docstring prompt."""
     return _fill(load_prompt(), kind=kind, context=context, code=code)
 
 
+# Fill the inline-comment prompt; `code` carries the statement numbers.
 def build_comment_prompt(kind: str, code: str, context: str = "") -> str:
-    """Fill the inline-comment prompt; ``code`` carries the statement numbers."""
     return _fill(_load("clio_comments.txt"), kind=kind, context=context, code=code)
 
 
+# Return the part of a reply that follows `marker`, without echoed code.
+#
+# Raises:
+#     ClioError: if the marker is not there.
 def _after_marker(reply: str, marker: re.Pattern, label: str) -> str:
-    """Return the part of a reply that follows ``marker``, without echoed code.
-
-    Raises:
-        ClioError: if the marker is not there.
-    """
     text = strip_reasoning(reply)
     match = marker.match(text)
     if match is None:
@@ -172,17 +168,16 @@ def _after_marker(reply: str, marker: re.Pattern, label: str) -> str:
     return _ECHO.split(text[match.end() :], maxsplit=1)[0]
 
 
+# Extract the docstring text from a model reply.
+#
+# The reply must contain a `DOCSTRING:` line followed by the text. Quotes
+# the model put around the text are removed, and so is any copy of the code
+# the model repeated after its answer.
+#
+# Raises:
+#     ClioError: if the marker is missing, the text is empty, or it contains
+#         a triple double quote, which would end the docstring early.
 def parse_reply(reply: str) -> str:
-    """Extract the docstring text from a model reply.
-
-    The reply must contain a ``DOCSTRING:`` line followed by the text. Quotes
-    the model put around the text are removed, and so is any copy of the code
-    the model repeated after its answer.
-
-    Raises:
-        ClioError: if the marker is missing, the text is empty, or it contains
-            a triple double quote, which would end the docstring early.
-    """
     text = textwrap.dedent(_after_marker(reply, _DOC_MARKER, "DOCSTRING:")).strip()
     for quote in ('"""', "'''"):
         if text.startswith(quote) and text.endswith(quote) and len(text) >= 2 * len(quote):
@@ -198,18 +193,17 @@ def parse_reply(reply: str) -> str:
     return polish_docstring(text).replace("\\", "\\\\")
 
 
+# Extract `(statement number, comment text)` pairs from a model reply.
+#
+# The reply must contain a `COMMENTS:` line, followed by `S3: text`
+# lines, or by `NONE`. A leading `#` in the text is removed. The numbers
+# are not checked here: a number that points at nothing is the caller's
+# business, because it is worth counting.
+#
+# Raises:
+#     ClioError: if the marker is missing, or there is text but no line in
+#         the `S3: text` format.
 def parse_comments(reply: str) -> list[tuple[int, str]]:
-    """Extract ``(statement number, comment text)`` pairs from a model reply.
-
-    The reply must contain a ``COMMENTS:`` line, followed by ``S3: text``
-    lines, or by ``NONE``. A leading ``#`` in the text is removed. The numbers
-    are not checked here: a number that points at nothing is the caller's
-    business, because it is worth counting.
-
-    Raises:
-        ClioError: if the marker is missing, or there is text but no line in
-            the ``S3: text`` format.
-    """
     entries: list[tuple[int, str]] = []
     unmatched = False
     for line in _after_marker(reply, _COMMENTS_MARKER, "COMMENTS:").splitlines():
@@ -226,12 +220,11 @@ def parse_comments(reply: str) -> list[tuple[int, str]]:
     return entries
 
 
+# Wrap one line to `width`, keeping its indentation.
+#
+# The continuation of a list entry is indented four more, so the entry's
+# name stays visible.
 def _wrap(line: str, width: int) -> list[str]:
-    """Wrap one line to ``width``, keeping its indentation.
-
-    The continuation of a list entry is indented four more, so the entry's
-    name stays visible.
-    """
     if len(line) <= width:
         return [line]
     lead = len(line) - len(line.lstrip())
@@ -245,12 +238,11 @@ def _wrap(line: str, width: int) -> list[str]:
     ) or [line]
 
 
+# Lay out `text` as the lines of a triple-quoted docstring.
+#
+# Lines are wrapped so that none passes `DOCSTRING_WIDTH` columns, which
+# only changes where the text breaks.
 def format_docstring(text: str, indent: str, newline: str) -> list[str]:
-    """Lay out ``text`` as the lines of a triple-quoted docstring.
-
-    Lines are wrapped so that none passes ``DOCSTRING_WIDTH`` columns, which
-    only changes where the text breaks.
-    """
     width = DOCSTRING_WIDTH - len(indent)
     lines: list[str] = []
     for position, raw in enumerate(text.split("\n")):
@@ -264,8 +256,8 @@ def format_docstring(text: str, indent: str, newline: str) -> list[str]:
     return [f'{indent}"""{lines[0]}{newline}', *body, f'{indent}"""{newline}']
 
 
+# Lay out `text` as one or more `#` lines, wrapped to about 79 columns.
 def format_comment(text: str, indent: str, newline: str) -> list[str]:
-    """Lay out ``text`` as one or more ``#`` lines, wrapped to about 79 columns."""
     width = max(20, 79 - len(indent) - 2)
     return [f"{indent}# {line}{newline}" for line in textwrap.wrap(text, width=width)]
 
@@ -290,8 +282,8 @@ def _indent_of(line: str) -> str:
     return line[: len(line) - len(line.lstrip(" \t"))]
 
 
+# Tell whether `statement` is the first thing on its (indented) line.
 def _starts_line(statement: ast.stmt, line: str, indent: str) -> bool:
-    """Tell whether ``statement`` is the first thing on its (indented) line."""
     if not indent:
         return False
     if getattr(statement, "decorator_list", None):
@@ -300,13 +292,12 @@ def _starts_line(statement: ast.stmt, line: str, indent: str) -> bool:
     return statement.col_offset == len(indent.encode("utf-8"))
 
 
+# Find where a docstring would go in `node`.
+#
+# Returns `(index, indent)`, or a string explaining why the node is to be
+# left alone. The docstring goes right before the first statement of the
+# body, which must start its own line.
 def _slot(node: ast.AST, lines: list[str], offset: int) -> tuple[int, str] | str:
-    """Find where a docstring would go in ``node``.
-
-    Returns ``(index, indent)``, or a string explaining why the node is to be
-    left alone. The docstring goes right before the first statement of the
-    body, which must start its own line.
-    """
     first = node.body[0]
     if _is_docstring(first):
         return "already has a docstring (not Momus's to replace)"
@@ -318,12 +309,11 @@ def _slot(node: ast.AST, lines: list[str], offset: int) -> tuple[int, str] | str
     return line_number - 1, indent
 
 
+# List the statements of a body in source order, nested blocks included.
+#
+# Nested functions and classes count as one statement each and are not
+# entered: they are not targets of their own yet.
 def _statements(body: list[ast.stmt]) -> list[ast.stmt]:
-    """List the statements of a body in source order, nested blocks included.
-
-    Nested functions and classes count as one statement each and are not
-    entered: they are not targets of their own yet.
-    """
     found: list[ast.stmt] = []
 
     def visit(statements):
@@ -342,13 +332,12 @@ def _statements(body: list[ast.stmt]) -> list[ast.stmt]:
     return sorted(found, key=_first_line)
 
 
+# Return `(index, indent)` if a comment may go above `statement`, else None.
+#
+# Not offered: statements that share a line with another, `elif` branches,
+# and any statement that already has a comment above it or on its line. A
+# comment written by someone else is never joined or replaced.
 def _comment_slot(statement: ast.stmt, lines: list[str], offset: int, commented: set[int]):
-    """Return ``(index, indent)`` if a comment may go above ``statement``, else None.
-
-    Not offered: statements that share a line with another, ``elif`` branches,
-    and any statement that already has a comment above it or on its line. A
-    comment written by someone else is never joined or replaced.
-    """
     number = _first_line(statement) + offset
     line = lines[number - 1]
     indent = _indent_of(line)
@@ -361,11 +350,10 @@ def _comment_slot(statement: ast.stmt, lines: list[str], offset: int, commented:
     return number - 1, indent
 
 
+# Show `node` with a left column holding the statement numbers.
+#
+# `numbers` maps an absolute 1-based line number to its statement number.
 def _numbered(node: ast.stmt, piece_lines: list[str], numbers: dict[int, int], offset: int) -> str:
-    """Show ``node`` with a left column holding the statement numbers.
-
-    ``numbers`` maps an absolute 1-based line number to its statement number.
-    """
     start, end = _first_line(node), node.end_lineno
     indent = _indent_of(piece_lines[start - 1])
     rows = []
@@ -382,8 +370,8 @@ def _code_of(node: ast.stmt, piece_lines: list[str]) -> str:
     return textwrap.dedent("".join(piece_lines[start - 1 : end]))
 
 
+# Return the 1-based numbers of the lines that carry a `#` comment.
 def _commented_lines(source: str) -> set[int]:
-    """Return the 1-based numbers of the lines that carry a ``#`` comment."""
     reader = io.StringIO(source, newline="").readline
     return {
         token.start[0]
@@ -392,8 +380,8 @@ def _commented_lines(source: str) -> set[int]:
     }
 
 
+# List what needs a docstring or comments, and what was left alone and why.
 def _targets(source: str, lines: list[str], want_comments: bool):
-    """List what needs a docstring or comments, and what was left alone and why."""
     doc_targets: list[_Target] = []
     comment_targets: list[_CommentTarget] = []
     doc_skips: list[Outcome] = []
@@ -481,12 +469,11 @@ def _ending_of(lines: list[str], index: int) -> str:
     return "\n"
 
 
+# Insert blocks of lines before the given 0-based indexes, in one pass.
+#
+# Blocks given for the same index go in the order given. Returns the new
+# text and the 1-based numbers of the inserted lines in it.
 def _insert(lines: list[str], insertions: list[tuple[int, list[str]]]) -> tuple[str, list[int]]:
-    """Insert blocks of lines before the given 0-based indexes, in one pass.
-
-    Blocks given for the same index go in the order given. Returns the new
-    text and the 1-based numbers of the inserted lines in it.
-    """
     pending: dict[int, list[str]] = {}
     for index, block in insertions:
         pending.setdefault(index, []).extend(block)
@@ -501,8 +488,8 @@ def _insert(lines: list[str], insertions: list[tuple[int, list[str]]]) -> tuple[
     return "".join(result), numbers
 
 
+# Run both Argus checks; return the reason for a failure, or None.
 def _passes_guard(original: str, new: str, inserted: list[int]) -> str | None:
-    """Run both Argus checks; return the reason for a failure, or None."""
     for verdict in (
         argus.compare_code(original, new),
         argus.check_inserted_lines(original, new, inserted),
@@ -512,34 +499,33 @@ def _passes_guard(original: str, new: str, inserted: list[int]) -> str | None:
     return None
 
 
+# Return the part of a prompt that comes before the code.
 def _instructions(prompt: str) -> str:
-    """Return the part of a prompt that comes before the code."""
     return prompt.rsplit("\nCode:\n", 1)[0]
 
 
+# Name where a failure came from: the server, or the shape of the reply.
 def _cause_of(error: Exception) -> str:
-    """Name where a failure came from: the server, or the shape of the reply."""
     return "backend" if isinstance(error, BackendError) else "reply"
 
 
+# Tell whether the line right after the inserted block is `original_line`.
 def _sits_above(new: str, inserted: list[int], original_line: str) -> bool:
-    """Tell whether the line right after the inserted block is ``original_line``."""
     new_lines = argus.split_lines(new)
     return inserted[-1] < len(new_lines) and new_lines[inserted[-1]] == original_line
 
 
+# Add missing docstrings, and inline comments if asked, to `source`.
+#
+# `mode` is `"docstrings"` (the default), `"comments"` or `"both"`. Text comes from
+# `backend`; Momus does the inserting and Argus the verifying. Each
+# insertion is checked on its own, and one that fails is dropped without
+# affecting the others. A final check covers the combined result. A file
+# that cannot be analysed is returned unchanged.
+#
+# Raises:
+#     ValueError: if `mode` is not one of `MODES`.
 def comment_source(source: str, backend: Backend, mode: str = DEFAULT_MODE) -> ClioResult:
-    """Add missing docstrings, and inline comments if asked, to ``source``.
-
-    ``mode`` is ``"docstrings"`` (the default), ``"comments"`` or ``"both"``. Text comes from
-    ``backend``; Momus does the inserting and Argus the verifying. Each
-    insertion is checked on its own, and one that fails is dropped without
-    affecting the others. A final check covers the combined result. A file
-    that cannot be analysed is returned unchanged.
-
-    Raises:
-        ValueError: if ``mode`` is not one of ``MODES``.
-    """
     if mode not in MODES:
         raise ValueError(f"mode must be one of {MODES}, got {mode!r}")
     want_docstrings = mode in ("both", "docstrings")
@@ -691,12 +677,11 @@ def changed_python_files(folder: Path = Path(".")) -> list[Path]:
     return [top / name for name in sorted(names) if name.endswith(".py")]
 
 
+# Read a file as UTF-8 without touching its line endings.
+#
+# Raises:
+#     ClioError: if the file is not valid UTF-8.
 def read_text_exact(path: Path) -> str:
-    """Read a file as UTF-8 without touching its line endings.
-
-    Raises:
-        ClioError: if the file is not valid UTF-8.
-    """
     try:
         with open(path, encoding="utf-8", newline="") as handle:
             return handle.read()
@@ -704,13 +689,12 @@ def read_text_exact(path: Path) -> str:
         raise ClioError(f"{path} is not valid UTF-8") from exc
 
 
+# Replace `path` with `text` so a crash never leaves a half-written file.
+#
+# The text goes to a temporary file in the same folder, which then replaces
+# the original in one step. The original's permissions are kept and line
+# endings are written exactly as given.
 def write_text_atomic(path: Path, text: str) -> None:
-    """Replace ``path`` with ``text`` so a crash never leaves a half-written file.
-
-    The text goes to a temporary file in the same folder, which then replaces
-    the original in one step. The original's permissions are kept and line
-    endings are written exactly as given.
-    """
     folder = path.resolve().parent
     handle, temp_name = tempfile.mkstemp(dir=folder, prefix=path.name + ".", suffix=".tmp")
     try:

@@ -1,16 +1,15 @@
-"""Cheap, deterministic quality rules for what a model wrote.
-
-Small models produce a lot of text that is correct but useless: a comment that
-says "This checks if the list is empty" above exactly that check, a
-``Returns: None`` section, a placeholder like "the comment text is missing".
-Argus cannot see any of it, because it only proves the code is unchanged, and
-asking the strong model to flag it costs tokens. These rules catch the
-obvious cases for free.
-
-They are heuristics. They can throw away a comment that was fine, and that is
-the safe direction: Momus would rather add fewer comments than add noise.
-Nothing here reads or changes code; it only judges and cleans text.
-"""
+# Cheap, deterministic quality rules for what a model wrote.
+#
+# Small models produce a lot of text that is correct but useless: a comment that
+# says "This checks if the list is empty" above exactly that check, a
+# `Returns: None` section, a placeholder like "the comment text is missing".
+# Argus cannot see any of it, because it only proves the code is unchanged, and
+# asking the strong model to flag it costs tokens. These rules catch the
+# obvious cases for free.
+#
+# They are heuristics. They can throw away a comment that was fine, and that is
+# the safe direction: Momus would rather add fewer comments than add noise.
+# Nothing here reads or changes code; it only judges and cleans text.
 
 import re
 
@@ -63,24 +62,23 @@ _TEMPLATE = re.compile(r"^<[^>]*>$|\b(the (docstring|comment) text|comment text 
 SUMMARY_LIMIT = 72
 
 
+# Tell whether `text` is the template echoed back, not an answer.
 def is_placeholder(text: str) -> bool:
-    """Tell whether ``text`` is the template echoed back, not an answer."""
     return bool(_TEMPLATE.search(text.strip()))
 
 
+# Lower-case `text` and reduce it to words separated by single spaces.
 def _normalized(text: str) -> str:
-    """Lower-case ``text`` and reduce it to words separated by single spaces."""
     return " ".join(re.findall(r"[a-z0-9']+", text.lower()))
 
 
+# Tell whether a sentence of `text` is lifted from `instructions`.
+#
+# Small models sometimes paste part of their prompt into the answer: an
+# example, or the sentence that gave them context. Such text is about the
+# prompt, not about the code, so it is false wherever it lands. A sentence of
+# four words or more that appears word for word in the instructions counts.
 def copied_from_instructions(text: str, instructions: str) -> bool:
-    """Tell whether a sentence of ``text`` is lifted from ``instructions``.
-
-    Small models sometimes paste part of their prompt into the answer: an
-    example, or the sentence that gave them context. Such text is about the
-    prompt, not about the code, so it is false wherever it lands. A sentence of
-    four words or more that appears word for word in the instructions counts.
-    """
     source = f" {_normalized(instructions)} "
     for sentence in re.split(r"[.!?\n]+", text):
         words = _normalized(sentence)
@@ -94,20 +92,19 @@ def _is_vacuous(line: str) -> bool:
     return bool(_VACUOUS.match(stripped) or _SELF_ENTRY.match(stripped))
 
 
+# Clean a docstring's text without changing what it says.
+#
+# Section headings on a line of their own get one spelling (`Args`,
+# `Returns`, `Raises`) and a blank line before them; their entries lose
+# bullets and backticks around the name and are indented. Entries that say
+# nothing (`None`, "no exceptions", the `self` argument) are dropped, and
+# a section left empty goes with them. A list of the class's methods is
+# removed. Plain paragraphs are joined into single lines, to be wrapped evenly
+# later. A long single paragraph is split after its first sentence so there
+# is a summary line. A heading with its text on
+# the same line (`Returns: the value.`) is left alone, unless that text
+# says nothing.
 def polish_docstring(text: str) -> str:
-    """Clean a docstring's text without changing what it says.
-
-    Section headings on a line of their own get one spelling (``Args``,
-    ``Returns``, ``Raises``) and a blank line before them; their entries lose
-    bullets and backticks around the name and are indented. Entries that say
-    nothing (``None``, "no exceptions", the ``self`` argument) are dropped, and
-    a section left empty goes with them. A list of the class's methods is
-    removed. Plain paragraphs are joined into single lines, to be wrapped evenly
-    later. A long single paragraph is split after its first sentence so there
-    is a summary line. A heading with its text on
-    the same line (``Returns: the value.``) is left alone, unless that text
-    says nothing.
-    """
     # Docstrings are plain text: markdown bold around a heading ("**Args:**")
     # would otherwise hide the heading from the rules below.
     text = text.replace("**", "")
@@ -161,13 +158,12 @@ def polish_docstring(text: str) -> str:
     return _add_summary_line(_reflow(text))
 
 
+# Join the lines of each plain paragraph into one line.
+#
+# Models break lines wherever they like; wrapping such text again gives
+# ragged lines. Sections, indented lines, list items and a heading with its
+# text on the same line are left as they are.
 def _reflow(text: str) -> str:
-    """Join the lines of each plain paragraph into one line.
-
-    Models break lines wherever they like; wrapping such text again gives
-    ragged lines. Sections, indented lines, list items and a heading with its
-    text on the same line are left as they are.
-    """
     paragraphs = []
     for paragraph in text.split("\n\n"):
         lines = paragraph.split("\n")
@@ -189,8 +185,8 @@ def _reflow(text: str) -> str:
     return "\n\n".join(paragraphs)
 
 
+# Split `text` after its first sentence if that paragraph is long and single.
 def _add_summary_line(text: str) -> str:
-    """Split ``text`` after its first sentence if that paragraph is long and single."""
     first, separator, rest = text.partition("\n\n")
     if "\n" in first or len(first) <= SUMMARY_LIMIT:
         return text
@@ -284,11 +280,10 @@ RESTATE_RATIO = 0.6
 MIN_WORDS = 2
 
 
+# Cut a word down to a rough stem, so "sorted", "sorts" and "sort" meet.
+#
+# Crude on purpose: it only has to be the same on both sides of a comparison.
 def _stem(word: str) -> str:
-    """Cut a word down to a rough stem, so "sorted", "sorts" and "sort" meet.
-
-    Crude on purpose: it only has to be the same on both sides of a comparison.
-    """
     if word.endswith("ies") and len(word) > 4:
         word = word[:-3] + "y"
     elif word.endswith("ing") and len(word) > 5:
@@ -302,22 +297,21 @@ def _stem(word: str) -> str:
     return word
 
 
+# Stemmed content words of `text`, with identifiers also split into their parts.
 def _words(text: str) -> set[str]:
-    """Stemmed content words of ``text``, with identifiers also split into their parts."""
     spaced = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", text).replace("_", " ")
     found = set(_WORD.findall(text.lower())) | set(_WORD.findall(spaced.lower()))
     return {_stem(word) for word in found - _STOPWORDS}
 
 
+# Return why a comment above `statement` should be dropped, or None.
+#
+# Dropped: placeholders; comments that narrate ("This checks ...", "The `x`
+# ...", "If ..., it ...", "Otherwise, it ..."); bare instructions and
+# passive descriptions with no reason ("Initialize the total.", "The total
+# is calculated ..."); comments longer than a couple of lines; and comments whose words are mostly found in the statement
+# itself, which only say again what the code says.
 def comment_problem(text: str, statement: str) -> str | None:
-    """Return why a comment above ``statement`` should be dropped, or None.
-
-    Dropped: placeholders; comments that narrate ("This checks ...", "The `x`
-    ...", "If ..., it ...", "Otherwise, it ..."); bare instructions and
-    passive descriptions with no reason ("Initialize the total.", "The total
-    is calculated ..."); comments longer than a couple of lines; and comments whose words are mostly found in the statement
-    itself, which only say again what the code says.
-    """
     if is_placeholder(text):
         return "the comment is a placeholder"
     stripped = text.strip()

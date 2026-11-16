@@ -1,8 +1,7 @@
-"""Reads ``momus.toml`` and builds the configured backends.
-
-The file holds settings only. API keys never go here: they live in
-environment variables, and the file only names which variable to read.
-"""
+# Reads `momus.toml` and builds the configured backends.
+#
+# The file holds settings only. API keys never go here: they live in
+# environment variables, and the file only names which variable to read.
 
 import tomllib
 from dataclasses import dataclass, fields
@@ -17,10 +16,9 @@ DEFAULT_CONFIG_NAME = "momus.toml"
 REVIEW_BACKENDS = ("claude_code", "anthropic")
 
 
+# Settings of the local model server.
 @dataclass(frozen=True)
 class LocalSettings:
-    """Settings of the local model server."""
-
     base_url: str = "http://localhost:11434/v1"
     model: str = "qwen2.5-coder:1.5b"
     temperature: float = 0.0
@@ -28,10 +26,9 @@ class LocalSettings:
     timeout: float = 600.0
 
 
+# Settings of the review stage (the strong model).
 @dataclass(frozen=True)
 class ReviewSettings:
-    """Settings of the review stage (the strong model)."""
-
     backend: str = "claude_code"
     # The model for long files, and for every file if ``small_model`` is empty.
     # Empty means the backend's own default (Claude Code only), which can be
@@ -50,15 +47,14 @@ class ReviewSettings:
     max_items: int = 10
 
 
+# Read one table of the config file into `settings_class`.
+#
+# A missing file or table gives the defaults.
+#
+# Raises:
+#     BackendError: if the file is not valid TOML or the table has an
+#         unknown key.
 def _read_table(path: Path | str, table: str, settings_class):
-    """Read one table of the config file into ``settings_class``.
-
-    A missing file or table gives the defaults.
-
-    Raises:
-        BackendError: if the file is not valid TOML or the table has an
-            unknown key.
-    """
     config_path = Path(path)
     if not config_path.exists():
         return settings_class()
@@ -75,26 +71,25 @@ def _read_table(path: Path | str, table: str, settings_class):
     return settings_class(**values)
 
 
+# Read the `[local]` table of `path`; a missing file gives the defaults.
 def load_local_settings(path: Path | str = DEFAULT_CONFIG_NAME) -> LocalSettings:
-    """Read the ``[local]`` table of ``path``; a missing file gives the defaults."""
     return _read_table(path, "local", LocalSettings)
 
 
+# Read the `[review]` table of `path`; a missing file gives the defaults.
+#
+# Raises:
+#     BackendError: if the backend name is not one of `REVIEW_BACKENDS`, in
+#         addition to the errors of reading the file.
 def load_review_settings(path: Path | str = DEFAULT_CONFIG_NAME) -> ReviewSettings:
-    """Read the ``[review]`` table of ``path``; a missing file gives the defaults.
-
-    Raises:
-        BackendError: if the backend name is not one of ``REVIEW_BACKENDS``, in
-            addition to the errors of reading the file.
-    """
     settings = _read_table(path, "review", ReviewSettings)
     if settings.backend not in REVIEW_BACKENDS:
         raise BackendError(f"[review] backend must be one of {REVIEW_BACKENDS}, got {settings.backend!r}")
     return settings
 
 
+# Create a `LocalBackend` from `settings`.
 def build_local_backend(settings: LocalSettings) -> Backend:
-    """Create a ``LocalBackend`` from ``settings``."""
     return LocalBackend(
         base_url=settings.base_url,
         model=settings.model,
@@ -117,20 +112,18 @@ def _review_backend(settings: ReviewSettings, model: str) -> Backend:
     )
 
 
+# Create the main review backend named in `settings`.
+#
+# Raises:
+#     BackendError: if the Anthropic backend is chosen without a model.
 def build_review_backend(settings: ReviewSettings) -> Backend:
-    """Create the main review backend named in ``settings``.
-
-    Raises:
-        BackendError: if the Anthropic backend is chosen without a model.
-    """
     return _review_backend(settings, settings.model)
 
 
+# Create the backend for short files, or None if routing is off.
+#
+# Routing is off when `small_model` is empty or the same as `model`.
 def build_small_review_backend(settings: ReviewSettings) -> Backend | None:
-    """Create the backend for short files, or None if routing is off.
-
-    Routing is off when ``small_model`` is empty or the same as ``model``.
-    """
     if not settings.small_model or settings.small_model == settings.model:
         return None
     return _review_backend(settings, settings.small_model)

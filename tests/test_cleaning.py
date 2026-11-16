@@ -1,4 +1,4 @@
-"""Tests for the model-output cleaner (plan §8)."""
+# Tests for the model-output cleaner (plan §8).
 
 import pytest
 

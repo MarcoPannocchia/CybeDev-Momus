@@ -1,17 +1,16 @@
-"""Backend that asks Claude through Claude Code in non-interactive mode.
-
-It runs ``claude -p`` once per prompt. It needs no API key and no extra Python
-dependency: it uses whatever login the ``claude`` command already has, so the
-calls count against that account.
-
-By default ``claude -p`` loads everything an interactive session would: its
-long system prompt, every connected tool server, every skill. Measured on the
-maintainer's machine (2026-11-14), that was about 186 000 input tokens for a
-request whose own text was one line. The reviewer only reads text, so all of
-it is switched off here, which brought the same request down to about 1 300
-tokens. The command is also started from an empty folder, so the instructions
-of whatever project Momus runs in are not loaded either.
-"""
+# Backend that asks Claude through Claude Code in non-interactive mode.
+#
+# It runs `claude -p` once per prompt. It needs no API key and no extra Python
+# dependency: it uses whatever login the `claude` command already has, so the
+# calls count against that account.
+#
+# By default `claude -p` loads everything an interactive session would: its
+# long system prompt, every connected tool server, every skill. Measured on the
+# maintainer's machine (2026-11-14), that was about 186 000 input tokens for a
+# request whose own text was one line. The reviewer only reads text, so all of
+# it is switched off here, which brought the same request down to about 1 300
+# tokens. The command is also started from an empty folder, so the instructions
+# of whatever project Momus runs in are not loaded either.
 
 import json
 import subprocess
@@ -34,9 +33,8 @@ LEAN_FLAGS = [
 ]  # fmt: skip
 
 
+# Sends prompts to `claude -p` and returns the text of the reply.
 class ClaudeCodeBackend:
-    """Sends prompts to ``claude -p`` and returns the text of the reply."""
-
     def __init__(
         self,
         model: str | None = None,
@@ -53,13 +51,12 @@ class ClaudeCodeBackend:
         # ``prompt_tokens`` includes tokens written to or read from the cache.
         self.last_usage: dict | None = None
 
+    # Send `prompt` on standard input and return the reply text.
+    #
+    # Raises:
+    #     BackendError: if the command is missing, fails, times out, reports
+    #         an error, or returns no text.
     def complete(self, prompt: str) -> str:
-        """Send ``prompt`` on standard input and return the reply text.
-
-        Raises:
-            BackendError: if the command is missing, fails, times out, reports
-                an error, or returns no text.
-        """
         args = [self.command, "-p", *LEAN_FLAGS]
         if self.model:
             args += ["--model", self.model]

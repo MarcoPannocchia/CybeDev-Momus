@@ -1,15 +1,14 @@
-"""Argus, the AST guard: decides whether two texts contain the same code.
-
-Momus promises to touch only comments and docstrings. Argus is what enforces
-that promise: it compares the code before and after, ignoring comments and
-docstrings, and rejects everything it cannot prove unchanged (it fails
-closed).
-
-What the tree comparison does NOT see: spacing, quote style, redundant
-parentheses and line wrapping all parse to the same tree, so a reformatted
-file passes it. The second check, ``check_inserted_lines``, covers that: the
-lines Momus added, once removed, must give back the original text exactly.
-"""
+# Argus, the AST guard: decides whether two texts contain the same code.
+#
+# Momus promises to touch only comments and docstrings. Argus is what enforces
+# that promise: it compares the code before and after, ignoring comments and
+# docstrings, and rejects everything it cannot prove unchanged (it fails
+# closed).
+#
+# What the tree comparison does NOT see: spacing, quote style, redundant
+# parentheses and line wrapping all parse to the same tree, so a reformatted
+# file passes it. The second check, `check_inserted_lines`, covers that: the
+# lines Momus added, once removed, must give back the original text exactly.
 
 import ast
 import re
@@ -20,25 +19,24 @@ from dataclasses import dataclass
 _DOCSTRING_OWNERS = (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)
 
 
+# Raised when source text cannot be analysed, whatever the reason.
 class ArgusError(Exception):
-    """Raised when source text cannot be analysed, whatever the reason."""
+    pass
 
 
+# The guard's answer: whether the code is unchanged, and why.
 @dataclass(frozen=True)
 class Verdict:
-    """The guard's answer: whether the code is unchanged, and why."""
-
     accepted: bool
     reason: str
 
 
+# Tell whether `statement`, the first of a body, is a docstring.
+#
+# This mirrors Python's own rule: a bare expression statement holding a
+# plain string constant. F-strings, bytes and any other string-like
+# expression are code and must stay visible to the comparison.
 def _is_docstring(statement: ast.stmt) -> bool:
-    """Tell whether ``statement``, the first of a body, is a docstring.
-
-    This mirrors Python's own rule: a bare expression statement holding a
-    plain string constant. F-strings, bytes and any other string-like
-    expression are code and must stay visible to the comparison.
-    """
     return (
         isinstance(statement, ast.Expr)
         and isinstance(statement.value, ast.Constant)
@@ -46,16 +44,15 @@ def _is_docstring(statement: ast.stmt) -> bool:
     )
 
 
+# Parse `source` and remove its docstrings, leaving only the code.
+#
+# This is the one place where source is normalized; anything that needs to
+# reason about "the code without its documentation" should call it rather
+# than repeat the rules.
+#
+# Raises:
+#     ArgusError: if `source` is not text or cannot be parsed.
 def normalized_tree(source: str) -> ast.Module:
-    """Parse ``source`` and remove its docstrings, leaving only the code.
-
-    This is the one place where source is normalized; anything that needs to
-    reason about "the code without its documentation" should call it rather
-    than repeat the rules.
-
-    Raises:
-        ArgusError: if ``source`` is not text or cannot be parsed.
-    """
     if not isinstance(source, str):
         raise ArgusError(f"source must be text, got {type(source).__name__}")
     try:
@@ -79,15 +76,14 @@ def normalized_tree(source: str) -> ast.Module:
     return tree
 
 
+# Return a string that is equal for two texts exactly when their code is.
+#
+# It is the dump of the normalized tree without line or column positions, so
+# it does not move when comments or docstrings are added above the code.
+#
+# Raises:
+#     ArgusError: if `source` cannot be analysed.
 def code_fingerprint(source: str) -> str:
-    """Return a string that is equal for two texts exactly when their code is.
-
-    It is the dump of the normalized tree without line or column positions, so
-    it does not move when comments or docstrings are added above the code.
-
-    Raises:
-        ArgusError: if ``source`` cannot be analysed.
-    """
     tree = normalized_tree(source)
     try:
         return ast.dump(tree, include_attributes=False)
@@ -96,14 +92,13 @@ def code_fingerprint(source: str) -> str:
         raise ArgusError(f"cannot dump: {type(exc).__name__}: {exc}") from exc
 
 
+# Decide whether `new` has the same code as `original`.
+#
+# Only comments and docstrings may differ. Any doubt is a rejection: if
+# either text cannot be analysed, the verdict is negative. An unparseable
+# original is rejected too, because nothing can then be proven about the
+# new text. This function never raises.
 def compare_code(original: str, new: str) -> Verdict:
-    """Decide whether ``new`` has the same code as ``original``.
-
-    Only comments and docstrings may differ. Any doubt is a rejection: if
-    either text cannot be analysed, the verdict is negative. An unparseable
-    original is rejected too, because nothing can then be proven about the
-    new text. This function never raises.
-    """
     try:
         before = code_fingerprint(original)
     except ArgusError as exc:
@@ -125,25 +120,24 @@ _LINE = re.compile(r"[^\r\n]*(?:\r\n|\r|\n)|[^\r\n]+")
 _ENDING = re.compile(r"\r\n|\r|\n")
 
 
+# Split `text` into lines that, joined back, give `text` exactly.
 def split_lines(text: str) -> list[str]:
-    """Split ``text`` into lines that, joined back, give ``text`` exactly."""
     return _LINE.findall(text)
 
 
+# Decide whether `new` is `original` plus exactly the inserted lines.
+#
+# `inserted_lines` holds the 1-based numbers, in `new`, of the lines
+# Momus added. Removing those lines must give `original` character for
+# character, so every other line is untouched: no reformatting, no changed
+# spacing, no altered line ending. Characters are compared, which is the
+# same as comparing bytes for any single encoding.
+#
+# Rejected, because none of them can be proven safe: input that is not
+# text, line numbers that are not whole numbers, are repeated or fall
+# outside `new`, an empty set when the texts differ, and a mix of line
+# ending styles in either text. This function never raises.
 def check_inserted_lines(original: str, new: str, inserted_lines: Iterable[int]) -> Verdict:
-    """Decide whether ``new`` is ``original`` plus exactly the inserted lines.
-
-    ``inserted_lines`` holds the 1-based numbers, in ``new``, of the lines
-    Momus added. Removing those lines must give ``original`` character for
-    character, so every other line is untouched: no reformatting, no changed
-    spacing, no altered line ending. Characters are compared, which is the
-    same as comparing bytes for any single encoding.
-
-    Rejected, because none of them can be proven safe: input that is not
-    text, line numbers that are not whole numbers, are repeated or fall
-    outside ``new``, an empty set when the texts differ, and a mix of line
-    ending styles in either text. This function never raises.
-    """
     if not isinstance(original, str) or not isinstance(new, str):
         return Verdict(False, "both texts must be text")
     try:

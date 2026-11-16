@@ -1,12 +1,11 @@
-"""Cleans a model's raw reply before anything else looks at it.
-
-Local models often wrap their answer: a markdown fence, a sentence before or
-after it ("Here is the code..."), or a ``<think>`` block from a reasoning
-model. This module removes that wrapping and nothing else.
-
-Cleaning is not a safety step. It only makes a good answer usable; Argus
-still decides whether the result is accepted.
-"""
+# Cleans a model's raw reply before anything else looks at it.
+#
+# Local models often wrap their answer: a markdown fence, a sentence before or
+# after it ("Here is the code..."), or a `<think>` block from a reasoning
+# model. This module removes that wrapping and nothing else.
+#
+# Cleaning is not a safety step. It only makes a good answer usable; Argus
+# still decides whether the result is accepted.
 
 import re
 
@@ -25,12 +24,11 @@ _FENCE = re.compile(
 )
 
 
+# Remove `<think>` blocks, and anything before an orphan `</think>`.
+#
+# Raises:
+#     TypeError: if `text` is not a string.
 def strip_reasoning(text: str) -> str:
-    """Remove ``<think>`` blocks, and anything before an orphan ``</think>``.
-
-    Raises:
-        TypeError: if ``text`` is not a string.
-    """
     if not isinstance(text, str):
         raise TypeError(f"model output must be text, got {type(text).__name__}")
     text = _THINK_BLOCK.sub("", text)
@@ -43,18 +41,17 @@ def strip_reasoning(text: str) -> str:
     return text
 
 
+# Return the useful part of a model reply, without its wrapping.
+#
+# Reasoning blocks are dropped first. Then, if the reply contains a fenced
+# block, only the inside of the first one is kept, exactly as written: this
+# is what removes the chatter around it. Without a fence nothing can be
+# told apart from the answer, so only blank lines at the edges are trimmed
+# and a single sentence of chatter is left for the guard to reject.
+#
+# Raises:
+#     TypeError: if `text` is not a string.
 def clean_output(text: str) -> str:
-    """Return the useful part of a model reply, without its wrapping.
-
-    Reasoning blocks are dropped first. Then, if the reply contains a fenced
-    block, only the inside of the first one is kept, exactly as written: this
-    is what removes the chatter around it. Without a fence nothing can be
-    told apart from the answer, so only blank lines at the edges are trimmed
-    and a single sentence of chatter is left for the guard to reject.
-
-    Raises:
-        TypeError: if ``text`` is not a string.
-    """
     text = strip_reasoning(text)
 
     fenced = _FENCE.search(text)

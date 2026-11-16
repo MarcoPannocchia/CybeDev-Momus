@@ -34,6 +34,10 @@ module layout, open decisions); this file wins on process conventions
   (in English, plain words), and wait for the OK before moving on
 - Code, comments, docstrings, commit messages, README and this file are in
   **English**. Chat explanations to the maintainer are also in English
+- The repository's own code (`src/`, `tests/`) is explained with `#` comments,
+  **not docstrings**: a comment block above the definition, or inline. The one
+  exception is the package docstring in `src/momus/__init__.py`. This is about
+  the code of this repo, not about what Clio generates
 - Say plainly what was not run or not verified. Never claim a test passed if it
   was not executed
 - When asking the maintainer to run something, give **one command at a time**

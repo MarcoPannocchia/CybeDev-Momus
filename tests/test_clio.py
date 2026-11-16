@@ -1,4 +1,4 @@
-"""Tests for Clio, docstring-only slice (plan §9). Only the fake backend is used."""
+# Tests for Clio, docstring-only slice (plan §9). Only the fake backend is used.
 
 import ast
 import io
@@ -33,8 +33,8 @@ SOURCE = textwrap.dedent(
 ).lstrip("\n")
 
 
+# Slice 1: docstrings only.
 def docs(source, backend):
-    """Slice 1: docstrings only."""
     return clio.comment_source(source, backend, mode="docstrings")
 
 

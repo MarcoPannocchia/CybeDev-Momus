@@ -1,4 +1,4 @@
-"""Tests for the deterministic quality rules (plan §9)."""
+# Tests for the deterministic quality rules (plan §9).
 
 import pytest
 

@@ -1,9 +1,8 @@
-"""Tests for Argus, the AST guard (plan §7).
-
-Every sample is a small neutral function written for the purpose. "Accepted"
-means the guard found the code unchanged; "discarded" means it rejected the
-new text.
-"""
+# Tests for Argus, the AST guard (plan §7).
+#
+# Every sample is a small neutral function written for the purpose. "Accepted"
+# means the guard found the code unchanged; "discarded" means it rejected the
+# new text.
 
 import io
 import subprocess
@@ -23,8 +22,8 @@ from momus.cli import guard_command, main
 from momus.critic import CriticError
 
 
+# Dedent a triple-quoted sample so tests can be indented naturally.
 def src(text: str) -> str:
-    """Dedent a triple-quoted sample so tests can be indented naturally."""
     return textwrap.dedent(text).lstrip("\n")
 
 

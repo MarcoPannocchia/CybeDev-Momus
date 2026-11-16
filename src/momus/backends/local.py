@@ -1,13 +1,12 @@
-"""Backend for a local model server that speaks the OpenAI chat format.
-
-Ollama, llama.cpp and LM Studio all expose ``/v1/chat/completions``. Here that
-format is used only as a local transport protocol. Plain HTTP from the standard
-library is enough for one JSON request, so no extra dependency is needed.
-
-The context window is NOT set per request: the ``/v1`` endpoint has no portable
-way to do it. Configure it on the server instead (for Ollama, the
-``OLLAMA_CONTEXT_LENGTH`` environment variable or a Modelfile).
-"""
+# Backend for a local model server that speaks the OpenAI chat format.
+#
+# Ollama, llama.cpp and LM Studio all expose `/v1/chat/completions`. Here that
+# format is used only as a local transport protocol. Plain HTTP from the standard
+# library is enough for one JSON request, so no extra dependency is needed.
+#
+# The context window is NOT set per request: the `/v1` endpoint has no portable
+# way to do it. Configure it on the server instead (for Ollama, the
+# `OLLAMA_CONTEXT_LENGTH` environment variable or a Modelfile).
 
 import json
 import urllib.error
@@ -16,9 +15,8 @@ import urllib.request
 from momus.backends import BackendError
 
 
+# Sends prompts to a local OpenAI-format server and returns the reply text.
 class LocalBackend:
-    """Sends prompts to a local OpenAI-format server and returns the reply text."""
-
     def __init__(
         self,
         base_url: str,
@@ -35,13 +33,12 @@ class LocalBackend:
         # Token counts of the last reply, as the server reported them (or None).
         self.last_usage: dict | None = None
 
+    # Send `prompt` as one user message and return the model's reply.
+    #
+    # Raises:
+    #     BackendError: if the server is unreachable, answers with an error,
+    #         or returns a reply in an unexpected shape.
     def complete(self, prompt: str) -> str:
-        """Send ``prompt`` as one user message and return the model's reply.
-
-        Raises:
-            BackendError: if the server is unreachable, answers with an error,
-                or returns a reply in an unexpected shape.
-        """
         payload: dict = {
             "model": self.model,
             "messages": [{"role": "user", "content": prompt}],

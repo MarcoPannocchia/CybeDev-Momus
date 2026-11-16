@@ -1,4 +1,4 @@
-"""Smoke tests: the package imports and the CLI skeleton responds."""
+# Smoke tests: the package imports and the CLI skeleton responds.
 
 import pytest
 

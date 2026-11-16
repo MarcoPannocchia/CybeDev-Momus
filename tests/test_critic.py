@@ -1,8 +1,7 @@
-"""Tests for the review stage (plan §10): critic, Claude backends, config, command.
-
-Only fake backends, a fake process runner and a stub HTTP server on localhost
-are used: no real API and no real model.
-"""
+# Tests for the review stage (plan §10): critic, Claude backends, config, command.
+#
+# Only fake backends, a fake process runner and a stub HTTP server on localhost
+# are used: no real API and no real model.
 
 import io
 import json
@@ -309,15 +308,14 @@ def test_review_options_are_parsed():
 # --- Claude Code backend ---------------------------------------------------
 
 
+# What `claude -p --output-format json` prints.
 def claude_json(result="the reply", is_error=False, **usage) -> str:
-    """What ``claude -p --output-format json`` prints."""
     counts = {"input_tokens": 2, "cache_creation_input_tokens": 1200, "cache_read_input_tokens": 70, "output_tokens": 9}
     return json.dumps({"result": result, "is_error": is_error, "usage": {**counts, **usage}, "total_cost_usd": 0.01})
 
 
+# A stand-in for `subprocess.run` that records how it was called.
 class Runner:
-    """A stand-in for ``subprocess.run`` that records how it was called."""
-
     def __init__(self, stdout=None, returncode=0, stderr="", raises=None):
         stdout = claude_json() if stdout is None else stdout
         self.result = subprocess.CompletedProcess([], returncode, stdout, stderr)
@@ -392,9 +390,8 @@ def test_claude_code_failures_become_backend_errors(runner, message):
 # --- Anthropic backend -----------------------------------------------------
 
 
+# A localhost server that returns one fixed response and records the request.
 class StubApi:
-    """A localhost server that returns one fixed response and records the request."""
-
     def __init__(self, status=200, body=b""):
         self.seen = []
         outer = self

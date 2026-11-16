@@ -1,4 +1,4 @@
-"""Tests for the benchmark engine (plan §11). No model and no Ollama are used."""
+# Tests for the benchmark engine (plan §11). No model and no Ollama are used.
 
 import json
 import types
@@ -14,9 +14,8 @@ from momus.config import LocalSettings
 TWO_FUNCTIONS = "def a():\n    return 1\n\n\ndef b():\n    return 2\n"
 
 
+# A fake that also reports token counts, like a real server does.
 class UsageBackend:
-    """A fake that also reports token counts, like a real server does."""
-
     def __init__(self, replies):
         self.inner = FakeBackend(replies)
         self.last_usage = None
@@ -27,9 +26,8 @@ class UsageBackend:
         return reply
 
 
+# Stands in for OllamaInfo and records what the benchmark asked of it.
 class StubOllama:
-    """Stands in for OllamaInfo and records what the benchmark asked of it."""
-
     def __init__(self, installed=None):
         self._installed = installed
         self.unloads = 0
