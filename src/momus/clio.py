@@ -19,6 +19,7 @@ import shutil
 import subprocess
 import tempfile
 import textwrap
+import time
 import tokenize
 from dataclasses import dataclass
 from importlib import resources
@@ -102,10 +103,24 @@ class ClioResult:
     text: str
     outcomes: tuple[Outcome, ...]
     inserted_lines: tuple[int, ...]
+    calls: tuple["Call", ...] = ()  # one per request made to the model
 
     @property
     def changed(self) -> bool:
         return bool(self.inserted_lines)
+
+
+# One request to the model, in numbers only: this is what the usage ledger
+# stores, so it holds no code and no text.
+@dataclass(frozen=True)
+class Call:
+    kind: str  # "docstring" or "comment"
+    seconds: float
+    prompt_tokens: int | None  # as reported by the server; None if it gave none
+    completion_tokens: int | None
+    added: int  # insertions that came of it and passed the guard
+    rejected: int
+    failed: bool  # the server gave no answer at all
 
 
 @dataclass(frozen=True)
@@ -623,6 +638,45 @@ def comment_source(source: str, backend: Backend, mode: str = DEFAULT_MODE) -> C
         return ClioResult(source, (Outcome("<file>", SKIPPED, f"not processed: {exc}"),), ())
 
     outcomes: list[Outcome] = []
+    asked: list[tuple] = []  # (target name, kind, seconds, usage, failed) per request
+
+    def ask(name: str, kind: str, prompt: str) -> str:
+        started = time.perf_counter()
+        try:
+            reply = backend.complete(prompt)
+        except BackendError:
+            asked.append((name, kind, time.perf_counter() - started, {}, True))
+            raise
+        usage = getattr(backend, "last_usage", None)
+        usage = usage if isinstance(usage, dict) else {}
+        asked.append((name, kind, time.perf_counter() - started, usage, False))
+        return reply
+
+    # Counts, for each request, what became of the text it returned.
+    def calls() -> tuple[Call, ...]:
+        counted = []
+        for name, kind, seconds, usage, failed in asked:
+            if kind == "docstring":
+                mine = [o for o in outcomes if o.kind == kind and o.name == name]
+            else:
+                mine = [
+                    o
+                    for o in outcomes
+                    if o.kind == kind and (o.name == f"{name} comments" or o.name.startswith(f"{name} S"))
+                ]
+            counted.append(
+                Call(
+                    kind,
+                    seconds,
+                    usage.get("prompt_tokens"),
+                    usage.get("completion_tokens"),
+                    sum(o.status == ADDED for o in mine),
+                    sum(o.status == REJECTED for o in mine),
+                    failed,
+                )
+            )
+        return tuple(counted)
+
     if want_docstrings:
         outcomes.extend(doc_skips)
     else:
@@ -650,7 +704,7 @@ def comment_source(source: str, backend: Backend, mode: str = DEFAULT_MODE) -> C
     for target in doc_targets:
         prompt = build_prompt(target.kind, target.code, target.context)
         try:
-            text = parse_reply(backend.complete(prompt))
+            text = parse_reply(ask(target.name, "docstring", prompt))
             if copied_from_instructions(text, _instructions(prompt)):
                 raise ClioError("the text is copied from the instructions")
         except (BackendError, ClioError) as exc:
@@ -673,7 +727,7 @@ def comment_source(source: str, backend: Backend, mode: str = DEFAULT_MODE) -> C
         prompt = build_comment_prompt(target.kind, target.code, target.context)
         label = f"{target.name} comments"
         try:
-            entries = parse_comments(backend.complete(prompt))
+            entries = parse_comments(ask(target.name, "comment", prompt))
         except (BackendError, ClioError) as exc:
             outcomes.append(Outcome(label, REJECTED, str(exc), "comment", _cause_of(exc)))
             continue
@@ -719,7 +773,7 @@ def comment_source(source: str, backend: Backend, mode: str = DEFAULT_MODE) -> C
             try_insert(name, "comment", index, block, lines[index])
 
     if not accepted:
-        return ClioResult(source, tuple(outcomes), ())
+        return ClioResult(source, tuple(outcomes), (), calls())
     text, inserted = _insert(lines, [(index, block) for _, index, block, _ in accepted])
     failure = _passes_guard(source, text, inserted)
     if failure:
@@ -729,9 +783,9 @@ def comment_source(source: str, backend: Backend, mode: str = DEFAULT_MODE) -> C
             Outcome(n, REJECTED, f"combined check: {failure}", k, "guard")
             for n, _, _, k in accepted
         )
-        return ClioResult(source, tuple(outcomes), ())
+        return ClioResult(source, tuple(outcomes), (), calls())
     outcomes.extend(Outcome(name, ADDED, "added", kind) for name, _, _, kind in accepted)
-    return ClioResult(text, tuple(outcomes), tuple(inserted))
+    return ClioResult(text, tuple(outcomes), tuple(inserted), calls())
 
 
 # --- Files -----------------------------------------------------------------

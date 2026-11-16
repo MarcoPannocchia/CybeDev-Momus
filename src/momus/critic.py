@@ -14,6 +14,7 @@ import difflib
 import re
 import subprocess
 import textwrap
+import time
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from importlib import resources
@@ -79,6 +80,9 @@ class ReviewResult:
     reviewed: int = 0
     batches: int = 0
     errors: list[str] = field(default_factory=list)
+    # One entry per request, in numbers only (for the usage ledger): model,
+    # seconds, prompt_tokens, completion_tokens, reviewed, flagged, failed.
+    calls: list[dict] = field(default_factory=list)
 
 
 # --- Finding what was added ------------------------------------------------
@@ -336,11 +340,35 @@ def review_changes(
         except (CriticError, argus.ArgusError, SyntaxError, ValueError) as exc:
             result.errors.append(f"{path}: {exc}")
     for batch in build_batches(groups, max_items):
+        call = {
+            "model": str(getattr(backend, "model", "") or "unknown"),
+            "seconds": 0.0,
+            "prompt_tokens": None,
+            "completion_tokens": None,
+            "reviewed": 0,
+            "flagged": 0,
+            "failed": True,
+        }
+        result.calls.append(call)
+        started = time.perf_counter()
         try:
-            entries = parse_findings(backend.complete(batch.prompt))
-        except (BackendError, CriticError) as exc:
+            reply = backend.complete(batch.prompt)
+        except BackendError as exc:
+            call["seconds"] = time.perf_counter() - started
             result.errors.append(f"review request failed: {exc}")
             continue
+        call["seconds"] = time.perf_counter() - started
+        usage = getattr(backend, "last_usage", None)
+        if isinstance(usage, dict):
+            call["prompt_tokens"] = usage.get("prompt_tokens")
+            call["completion_tokens"] = usage.get("completion_tokens")
+        try:
+            entries = parse_findings(reply)
+        except CriticError as exc:
+            result.errors.append(f"review request failed: {exc}")
+            continue
+        call["failed"] = False
+        call["reviewed"] = len(batch.comments)
         result.batches += 1
         result.reviewed += len(batch.comments)
         for number, problem in entries:
@@ -348,6 +376,7 @@ def review_changes(
             if comment is None:
                 result.errors.append(f"the reviewer mentioned an unknown comment C{number}")
                 continue
+            call["flagged"] += 1
             result.findings.append(
                 Finding(
                     comment.path, comment.line, comment.kind, problem, comment.text, comment.end_line
@@ -382,6 +411,7 @@ def review_routed(
         result = review_changes(part, chosen, max_items)
         merged.findings.extend(result.findings)
         merged.errors.extend(result.errors)
+        merged.calls.extend(result.calls)
         merged.reviewed += result.reviewed
         merged.batches += result.batches
     merged.findings.sort(key=lambda finding: (finding.path, finding.line))

@@ -13,6 +13,7 @@ from pathlib import Path
 
 from momus import argus, bench
 from momus.backends import Backend, BackendError
+from momus.ledger import Ledger
 from momus.critic import CriticError, drop_flagged, find_comments, read_git_baseline, review_routed
 from momus.clio import (
     DEFAULT_MODE,
@@ -136,7 +137,12 @@ def build_parser() -> argparse.ArgumentParser:
 #
 # Returns 0 if every file could be read and processed, 1 otherwise.
 def comment_command(
-    files: list[Path], backend: Backend, write: bool, mode: str = DEFAULT_MODE, out=None
+    files: list[Path],
+    backend: Backend,
+    write: bool,
+    mode: str = DEFAULT_MODE,
+    out=None,
+    ledger: Ledger | None = None,
 ) -> int:
     out = out or sys.stdout
     status = 0
@@ -148,6 +154,20 @@ def comment_command(
             status = 1
             continue
         result = comment_source(source, backend, mode)
+        if ledger is not None:
+            for call in result.calls:
+                ledger.record(
+                    "clio",
+                    getattr(backend, "model", "") or "unknown",
+                    call.kind,
+                    call.prompt_tokens,
+                    call.completion_tokens,
+                    call.seconds,
+                    added=call.added,
+                    rejected=call.rejected,
+                    failed=call.failed,
+                    dry_run=not write,
+                )
         for outcome in result.outcomes:
             print(f"{path}: {outcome.name}: {outcome.status} - {outcome.reason}", file=out)
         if not result.changed:
@@ -232,6 +252,7 @@ def review_command(
     drop: bool = False,
     small_backend: Backend | None = None,
     small_file_lines: int = 0,
+    ledger: Ledger | None = None,
 ) -> int:
     out = out or sys.stdout
     status = 0
@@ -243,6 +264,19 @@ def review_command(
             print(f"{path}: cannot review: {exc}", file=sys.stderr)
             status = 1
     result = review_routed(changes, backend, small_backend, small_file_lines, max_items)
+    if ledger is not None:
+        for call in result.calls:
+            ledger.record(
+                "review",
+                call["model"],
+                "review",
+                call["prompt_tokens"],
+                call["completion_tokens"],
+                call["seconds"],
+                reviewed=call["reviewed"],
+                flagged=call["flagged"],
+                failed=call["failed"],
+            )
     for finding in result.findings:
         print(finding, file=out)
     for error in result.errors:
@@ -295,7 +329,7 @@ def main(argv: list[str] | None = None) -> int:
         except BackendError as exc:
             print(f"momus comment: {exc}", file=sys.stderr)
             return 1
-        return comment_command(files, backend, args.write, args.mode)
+        return comment_command(files, backend, args.write, args.mode, ledger=Ledger())
     if args.command == "guard":
         return guard_command(args.files, args.base, code_only=args.code_only)
     if args.command == "review":
@@ -314,6 +348,7 @@ def main(argv: list[str] | None = None) -> int:
             drop=args.drop,
             small_backend=small_backend,
             small_file_lines=settings.small_file_lines,
+            ledger=Ledger(),
         )
     return bench.main(args)
 

@@ -30,6 +30,8 @@ class AnthropicBackend:
         self.max_tokens = max_tokens
         self.timeout = timeout
         self.url = url
+        # Token counts of the last reply, as the server reported them.
+        self.last_usage: dict | None = None
 
     # Send `prompt` as one user message and return the reply text.
     #
@@ -37,6 +39,7 @@ class AnthropicBackend:
     #     BackendError: if the key is not set, the server cannot be reached,
     #         answers with an error, or returns an unexpected shape.
     def complete(self, prompt: str) -> str:
+        self.last_usage = None
         key = os.environ.get(self.api_key_env)
         if not key:
             raise BackendError(f"environment variable {self.api_key_env} is not set")
@@ -73,4 +76,11 @@ class AnthropicBackend:
             raise BackendError("server reply has no content blocks") from exc
         if not parts:
             raise BackendError("server reply has no text")
+        usage = body.get("usage") if isinstance(body, dict) else None
+        if isinstance(usage, dict):
+            # Under the names the other backends use, so callers read one shape.
+            self.last_usage = {
+                "prompt_tokens": usage.get("input_tokens"),
+                "completion_tokens": usage.get("output_tokens"),
+            }
         return "".join(parts)
