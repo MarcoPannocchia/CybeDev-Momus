@@ -424,11 +424,16 @@ class StubApi:
 def test_anthropic_sends_the_key_from_the_environment_and_returns_the_text(monkeypatch):
     monkeypatch.setenv("MOMUS_TEST_KEY", "sk-test-123")
     body = json.dumps(
-        {"content": [{"type": "text", "text": "C1: "}, {"type": "text", "text": "False."}]}
+        {
+            "content": [{"type": "text", "text": "C1: "}, {"type": "text", "text": "False."}],
+            "usage": {"input_tokens": 12, "output_tokens": 4},
+        }
     ).encode()
     with StubApi(body=body) as api:
         backend = AnthropicBackend("some-model", "MOMUS_TEST_KEY", max_tokens=64, url=api.url)
         assert backend.complete("question") == "C1: False."
+    # Reported under the names the other backends use.
+    assert backend.last_usage == {"prompt_tokens": 12, "completion_tokens": 4}
     (headers, payload), = api.seen
     headers = {name.lower(): value for name, value in headers.items()}  # urllib capitalizes names
     assert headers["x-api-key"] == "sk-test-123" and headers["anthropic-version"]

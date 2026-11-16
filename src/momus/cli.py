@@ -135,7 +135,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 # Run Clio on `files`; show a diff, and write only if `write` is true.
 #
-# Returns 0 if every file could be read and processed, 1 otherwise.
+# With a `ledger`, every request made to the model is recorded there in
+# numbers. Returns 0 if every file could be read and processed, 1 otherwise.
 def comment_command(
     files: list[Path],
     backend: Backend,
@@ -239,7 +240,8 @@ def guard_command(
 # Prints one `file:line: problem` per bad comment and nothing else on
 # standard output. With `drop` the flagged comments are then removed from
 # the files, each file being written only if the result still passes the
-# guard. Short files go to `small_backend` when one is given. Returns 0 if
+# guard. Short files go to `small_backend` when one is given. With a `ledger`,
+# every request made to the reviewer is recorded there in numbers. Returns 0 if
 # every file was reviewed (whether or not problems were found) and 1 if some
 # file or request could not be.
 def review_command(
