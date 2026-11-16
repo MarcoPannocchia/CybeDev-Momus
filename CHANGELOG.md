@@ -8,6 +8,11 @@ are in [WORKLOG.md](WORKLOG.md).
 
 ### Added
 
+- Usage ledger: `momus comment` and `momus review` append one line per model
+  request to `~/.local/state/momus/<project>/usage.jsonl` (or under
+  `$XDG_STATE_HOME`), with tokens in and out, seconds and what came of the
+  request. Numbers only: no code, no comment text, no file names
+- The `anthropic` review backend reports the tokens each call used
 - `momus bench --review`: what each model wrote is also read by the reviewer,
   and the result files show how many comments it flagged and what the review
   cost in requests and tokens

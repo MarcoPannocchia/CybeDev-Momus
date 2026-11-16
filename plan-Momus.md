@@ -731,10 +731,15 @@ momus/
 - [ ] Record the measurement conditions listed in §3 (CPU/GPU included)
 - [ ] Save raw results in `benchmarks/`, summarize in the README **including
       failures**
-- [ ] Usage ledger (added 2026-11-11, feeds §16.10): each Clio and review call
+- [x] Usage ledger (added 2026-11-11, feeds §16.10): each Clio and review call
       appends one counts-only record (tokens in/out, outcome) to a file in the
       Momus data folder (§16.7). No code or comment text in it. The same records give the
-      benchmark its token columns
+      benchmark its token columns — built 2026-11-16 as `src/momus/ledger.py`,
+      written by `momus comment` and `momus review` (details in §16.10). Run
+      once for real with `qwen2.5-coder:1.5b`: two records with the token
+      counts Ollama reported. **Not done:** `momus bench` does not write to
+      the ledger (a benchmark is not use of a project, and it keeps its own,
+      fuller records); the review side has run with fake backends only
 - [ ] Optional later: add `granite4:3b` once a download is possible
 - [ ] If the 30B is too slow to run the whole benchmark, say so in the table
       (e.g. run it on fewer files) instead of silently dropping it
@@ -1302,15 +1307,30 @@ running, §16.9) and a **usage space** of numbers (§16.10); the folder stays
       done by Claude (review calls made, comments reviewed / flagged); and
       pieces accepted or discarded by Argus. Which values appear is itself a
       setting (§16.1)
-- [ ] **Usage ledger**, written by the pipeline (not by the app): an
+- [x] **Usage ledger**, written by the pipeline (not by the app) — built
+      2026-11-16, `src/momus/ledger.py`. File:
+      `$XDG_STATE_HOME/momus/<project>/usage.jsonl` (default
+      `~/.local/state/momus/...`), one JSON line per request to a model with
+      fixed fields: `time`, `project`, `run` (one id per command run),
+      `stage` (`clio` or `review`), `model`, `kind`, `prompt_tokens`,
+      `completion_tokens`, `seconds`, `added`, `rejected`, `reviewed`,
+      `flagged`, `failed`, `dry_run`. One record per request, which for Clio
+      is one docstring or one function's inline comments, and for the review
+      is one batch. Not in a record: file names, since "counts only" was read
+      strictly. The project is the git repository the command is run in (or
+      the current folder); two projects with the same folder name are told
+      apart by a `project-id` file holding a hash of the path, and the second
+      one gets the suffix. Original wording of the item: an
       append-only file with one record per Clio piece and per review call —
       timestamp, project id, stage, model, tokens in/out, outcome (accepted
       by Argus, discarded, number flagged). **Counts only: never source code,
       comment text or file contents**, so a screenshot or a shared ledger
       cannot leak code. Format accepted 2026-11-12: JSON Lines. Location: the Momus data
       folder (§16.7), outside the projects, so no `.gitignore` entry is needed
-- [ ] Pipeline side (see §11): the recording code lives in `src/momus/`, and
-      writing a record must never be able to fail a run
+- [x] Pipeline side (see §11): the recording code lives in `src/momus/`, and
+      writing a record must never be able to fail a run — built 2026-11-16:
+      `Ledger.record()` returns false instead of raising, tested with a state
+      folder that cannot be created
 - [ ] **Tokens saved is an estimate** and is labeled as one everywhere it
       appears (CLAUDE.md: no unverified performance claims); the label reads
       "theoretical tokens saved (estimate)". Definition accepted
@@ -1319,7 +1339,13 @@ running, §16.9) and a **usage space** of numbers (§16.10); the folder stays
       Claude actually spent on review. The baseline needs a method: either a
       tokenizer count or, better, one measured run of the strong model on a
       sample, done once in §11
-- [ ] Where the token counts come from — **not verified**: whether Ollama's
+- [ ] Where the token counts come from — **partly verified 2026-11-16**:
+      Ollama 0.23.3 does return a usage field on `/v1` (seen in a real run,
+      323 and 280 prompt tokens for two requests); `claude -p` reports usage
+      (measured 2026-11-14); the `anthropic` backend now reads the `usage` of
+      the reply, tested against a stub server only. No tokenizer estimate
+      exists: where a server gives no count the ledger holds nothing for it.
+      Original wording: whether Ollama's
       `/v1` responses carry a usage field on 0.23.3, and whether `claude -p`
       reports usage. The Anthropic API returns usage per response, to confirm
       in the SDK. Where a source is missing, the number is a tokenizer

@@ -3,6 +3,105 @@
 Tests run, choices made and why, newest first. Maintained by the `work-log`
 skill. User-facing changes are summarized in [CHANGELOG.md](CHANGELOG.md).
 
+## 2026-11-16 — Usage ledger (plan §11, §16.10)
+
+**Changed**
+- `src/momus/ledger.py` (new): where the file lives, `Ledger.record()`,
+  `read_records()`
+- `src/momus/clio.py`: `ClioResult.calls`, one `Call` per request with tokens,
+  seconds and how many insertions it led to
+- `src/momus/critic.py`: `ReviewResult.calls`, the same for review requests
+- `src/momus/cli.py`: `momus comment` and `momus review` write the ledger
+- `src/momus/backends/anthropic.py`: `last_usage`
+- `tests/test_ledger.py` (new, 18 tests), `tests/conftest.py` (new),
+  `tests/test_critic.py` (one assertion)
+- `plan-Momus.md` §11, §16.10; `CHANGELOG.md`
+
+**Tests**
+- Baseline before changes: 409 passed, 1 deselected. After: `.venv/bin/pytest
+  -q` — 427 passed, 1 deselected
+- `tests/conftest.py` points `XDG_STATE_HOME` at a temporary folder for every
+  test, so the suite never writes in the real state folder. After the suite
+  and the real run below, `~/.local/state/momus` did not exist
+- A test found a fault in the first version: two projects with the same
+  folder name, both started before either had written, shared one file. The
+  folder is now decided at the moment of writing
+- Mutation check by hand, ten deliberate bugs (same-name projects sharing a
+  file, a write error escaping, text kept as a token count, a relative
+  `XDG_STATE_HOME` used, dry-run flag inverted, review not recorded, the small
+  model's calls lost, a failed call counted as fine, comment outcomes not
+  counted, no ledger from the command line): each caught
+- Real run: `XDG_STATE_HOME=<temporary folder> momus comment examples/retry.py
+  --model qwen2.5-coder:1.5b` (dry run). Two records, with 323/155 and 280/192
+  prompt/completion tokens and 12.7 s and 11.2 s. So Ollama 0.23.3 does report
+  usage on `/v1`
+- Not run: `momus review` writing the ledger with the real reviewer; the
+  `anthropic` backend against the real API; two commands writing the same
+  file at the same moment; Python other than 3.12.3
+
+**Decisions** (all the assistant's choice, open to change)
+- One record per request to a model, not per inserted comment: tokens exist
+  per request, and a request for inline comments can lead to several
+- No file names in a record. The plan says "counts only"; a file name is not
+  code, but it is not a count either, and leaving it out is the safe reading.
+  The cost: usage cannot be shown per file
+- `record()` has a fixed list of arguments and no free-text field, so text
+  cannot get into the file by mistake
+- The `time` of a record is when it was written (after the file was
+  processed), not when the request was made
+- The ledger is written on dry runs too: the tokens were spent either way.
+  `dry_run` says which it was
+- `momus bench` does not write to the ledger
+
+**Open / next**
+- For the maintainer: a manual `momus comment`, even as a dry run, now writes
+  a small file under `~/.local/state/momus/`. Nothing in the project is
+  touched. Say if you would rather have it off unless asked for
+- Nothing reads the ledger yet; the settings app (§16.10) is meant to
+
+## 2026-11-16 — `momus bench --review`; nested functions with their outer header (plan §11, §9)
+
+**Changed**
+- `src/momus/bench.py`: `Reviewer`; `run_model()` and `run_comparison()` take
+  one; the summary, the Markdown and the JSON gained the reviewer's figures
+- `src/momus/cli.py`: `momus bench --review`
+- `src/momus/clio.py`: a function inside a function is shown with the header
+  of the outer one and asked for by name; `_slot()` puts a docstring right
+  under the header
+- `tests/test_bench.py` (10 tests), `tests/test_clio.py` (1 test, 1 changed)
+- `plan-Momus.md` §11; `CHANGELOG.md`
+
+**Tests**
+- Baseline before changes: 398 passed, 1 deselected. After: 409 passed, 1
+  deselected
+- Mutation check by hand. Clio, two bugs (placement, outer header): both
+  caught. Benchmark, eight bugs: seven caught. The eighth, sending unchanged
+  files to the reviewer too, changes nothing that can be observed (a file
+  with no added comment produces no request), so no test can catch it
+- Real run, dry run, same file and model as the entry below
+  (`async_tools.py`, `qwen2.5-coder:7b`, mains power): 8 of 8 added. The
+  file's docstring is now one line. `memoize.wrapper` no longer lists `func`
+  as its own argument, and `gather_limited.run` now mentions the `limit` of
+  the outer function correctly. **One run, one model**: it shows the change
+  did what it was meant to here, not how often it helps
+- Seen in that run and not fixed: one docstring starts a paragraph with
+  "Caller must know:", words taken from the prompt
+- **Not run: `momus bench --review` with the real reviewer.** Fake backends
+  only. It would spend the Claude account's tokens, so I left it
+
+**Decisions** (the assistant's choice, open to change)
+- `--review` is off by default: it costs tokens of the strong model
+- The reviewer's figures are empty, not zero, when no reviewer was used
+- The review of each model's output is counted apart from the local model's
+  requests and tokens
+- Nested functions get the outer header — I proposed it and went ahead without
+  an answer, because the maintainer asked to go on with the plan. Tiny nested
+  helpers still all get a docstring: that question is still open
+
+**Open / next**
+- For the maintainer: should short nested helpers (a sort key, a wrapper) be
+  left without a docstring?
+
 ## 2026-11-16 — Clio: the file's own docstring and nested definitions (plan §9)
 
 **Changed**
