@@ -24,3 +24,11 @@ config.local.*
 .vscode/
 .idea/
 .DS_Store
+
+
+
+#CLAUDE:
+
+.claude/worktrees/
+.graphify-out/
+

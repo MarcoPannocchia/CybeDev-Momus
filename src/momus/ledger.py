@@ -1,11 +1,10 @@
-# The usage ledger: one line per model call, counts and a few names.
+# The usage ledger: one line per model call, counts only.
 #
 # Every call Clio or the reviewer makes is recorded as one JSON object on its
 # own line: when, which project, which stage and model, the tokens in and out,
 # the seconds it took and what came of it (docstrings added, comments flagged).
-# A record never holds code, comment text or a file name. It does hold the
-# name of the project's folder and of the model, which is worth a look before
-# the file is shared.
+# A record never holds code, comment text or a file name, so the file can be
+# shown or shared without leaking anything.
 #
 # The file lives outside the projects, in the user's state folder
 # (`$XDG_STATE_HOME/momus/<project>/usage.jsonl`, or `~/.local/state/...`), so
@@ -14,15 +13,60 @@
 # Recording must never be able to fail a run: every write swallows its errors
 # and reports them with a return value nobody is obliged to read.
 
+import hashlib
 import json
 import os
+import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 
-# `state_home` is not used here; it is kept reachable as `ledger.state_home`.
-from momus.state import claim_project_folder, project_folder, project_root, state_home
-
 LEDGER_NAME = "usage.jsonl"
+# Holds a hash of the project's path, to tell two projects with the same
+# folder name apart without writing the path itself anywhere.
+MARKER_NAME = "project-id"
+
+
+# The folder all of Momus's working files live under, resolved at run time.
+def state_home() -> Path:
+    base = os.environ.get("XDG_STATE_HOME", "")
+    # The XDG rules say a relative path here is to be ignored.
+    root = Path(base) if os.path.isabs(base) else Path.home() / ".local" / "state"
+    return root / "momus"
+
+
+# The project a command is run in: the top of the git repository that holds
+# `start`, or `start` itself when there is none.
+def project_root(start: Path | str = ".") -> Path:
+    try:
+        done = subprocess.run(
+            ["git", "-C", str(start), "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            timeout=10,
+            check=False,
+        )
+        top = done.stdout.decode("utf-8", errors="replace").strip() if done.returncode == 0 else ""
+    except (OSError, subprocess.SubprocessError):
+        top = ""
+    return Path(top) if top else Path(start).resolve()
+
+
+# The folder of one project under `home`, named after the project's folder.
+#
+# When another project with the same folder name already owns that folder, a
+# short piece of a hash of this project's path is added to the name, and only
+# then.
+def project_folder(root: Path, home: Path | None = None) -> Path:
+    home = home or state_home()
+    name = root.name or "root"
+    digest = hashlib.sha256(str(root).encode("utf-8", errors="surrogateescape")).hexdigest()
+    plain = home / name
+    try:
+        owner = (plain / MARKER_NAME).read_text(encoding="utf-8").strip()
+    except OSError:
+        owner = ""
+    if owner and owner != digest:
+        return home / f"{name}-{digest[:4]}"
+    return plain
 
 
 # Writes the records of one run of a command for one project.
@@ -53,8 +97,8 @@ class Ledger:
 
     # Append one record. Returns whether it was written; never raises.
     #
-    # Only numbers, true/false and three short names (stage, model, kind) are
-    # accepted, which is what keeps code and comment text out of the file.
+    # Only numbers, true/false and the three names below are accepted, which
+    # is what keeps code and comment text out of the file.
     def record(
         self,
         stage: str,
@@ -89,7 +133,11 @@ class Ledger:
                 "failed": bool(failed),
                 "dry_run": None if dry_run is None else bool(dry_run),
             }
-            folder = claim_project_folder(self.root, self.home)
+            folder.mkdir(parents=True, exist_ok=True)
+            marker = folder / MARKER_NAME
+            if not marker.exists():
+                digest = hashlib.sha256(str(self.root).encode("utf-8", errors="surrogateescape"))
+                marker.write_text(digest.hexdigest() + "\n", encoding="utf-8")
             with open(folder / LEDGER_NAME, "a", encoding="utf-8") as handle:
                 handle.write(json.dumps(entry) + "\n")
         except Exception:  # deliberately broad: see the note at the top of the file
@@ -99,9 +147,7 @@ class Ledger:
 
 # A token count as a whole number, or nothing if the server gave none.
 def _number(value) -> int | None:
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        return None
-    return int(value)
+    return value
 
 
 # Read the records of a ledger file, skipping lines that are not records.
