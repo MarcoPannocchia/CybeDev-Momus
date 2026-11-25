@@ -165,4 +165,8 @@ This repository does **not** include any model weights. Download the model you w
 
 ## Author
 
-Marco Pannocchia
+**Marco Pannocchia**
+
+[![GitHub](https://img.shields.io/badge/GitHub-MarcoPannocchia-181717?logo=github&logoColor=white)](https://github.com/MarcoPannocchia)
+[![LinkedIn](https://img.shields.io/badge/LinkedIn-Marco%20Pannocchia-0A66C2?logo=linkedin&logoColor=white)](https://www.linkedin.com/in/marco-pannocchia-191924433)
+[![Instagram](https://img.shields.io/badge/Instagram-marco__pannocchia-E4405F?logo=instagram&logoColor=white)](https://www.instagram.com/marco_pannocchia)
