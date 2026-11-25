@@ -30,5 +30,5 @@ config.local.*
 #CLAUDE:
 
 .claude/worktrees/
-.graphify-out/
+graphify-out/
 
